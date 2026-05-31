@@ -1,0 +1,242 @@
+/**
+ * ゼブラフィッシュ水槽管理アプリ ― Google Sheets 同期バックエンド (Google Apps Script)
+ *
+ * ▼ セットアップ手順
+ *  1. Google スプレッドシートを用意し、URL から ID を控える
+ *     (https://docs.google.com/spreadsheets/d/【ここがID】/edit)
+ *  2. Apps Script に本ファイルを貼り付けて保存
+ *  3. プロジェクトの設定 → スクリプト プロパティ に SPREADSHEET_ID = 上記ID を追加
+ *     (スプレッドシートに「拡張機能→Apps Script」で紐付いている場合は省略可)
+ *     (任意) SECRET = 合言葉 も追加すると、アプリ側と一致した時だけ許可
+ *  4. デプロイ → 新しいデプロイ → 種類「ウェブアプリ」
+ *       - 実行ユーザー: 自分
+ *       - アクセスできるユーザー: 全員
+ *  5. 発行された /exec で終わる URL をアプリの 設定 → データ同期 に貼り付ける
+ *
+ * シートはテーブルごとに自動作成され、ヘッダ行も自動で用意されます。
+ * レコードは主キーで突き合わせ、updated_at の新しい方を採用します(Last-Write-Wins)。
+ *
+ * ▼ 既存データの移行（CSV）
+ *  各テーブル名と同名のシートタブを作り、File → インポート → アップロード で
+ *  対応 CSV を「現在のシートを置換」で読み込む。
+ *  ※「テキストを数値、日付、数式に変換」は【しない(いいえ)】を選ぶこと。
+ */
+
+var SCHEMA = {
+  tanks: {
+    pk: 'tank_id',
+    cols: ['tank_id', 'rack', 'tier', 'col_no', 'health_status', 'memo',
+           'male_count', 'female_count', 'unknown_count', 'lineage', 'set_date',
+           'updated_at', 'deleted'],
+  },
+  feeding_logs: {
+    pk: 'id',
+    cols: ['id', 'fed_at', 'memo', 'updated_at', 'deleted'],
+  },
+  spawning_records: {
+    pk: 'id',
+    cols: ['id', 'spawning_date', 'male_parent_id', 'female_parent_id',
+           'egg_count', 'fertilization_rate', 'updated_at', 'deleted'],
+  },
+  mating_trials: {
+    pk: 'id',
+    cols: ['id', 'trial_no', 'planned_date', 'male_id', 'female_id',
+           'source_tank_male', 'source_tank_female', 'breeding_tank_id', 'status',
+           'setup_at', 'divider_removed_at', 'egg_collected_at', 'returned_at',
+           'spawning_history_id', 'notes', 'male_tag', 'female_tag',
+           'updated_at', 'deleted'],
+  },
+  activity_logs: {
+    pk: 'id',
+    cols: ['id', 'occurred_at', 'category', 'actor', 'target', 'details',
+           'updated_at', 'deleted'],
+  },
+  app_settings: {
+    pk: 'key',
+    cols: ['key', 'value', 'updated_at', 'deleted'],
+  },
+};
+
+function doGet(e) {
+  var p = (e && e.parameter) || {};
+  if (!checkToken(p.token)) return json({ error: 'unauthorized' });
+  if (p.action === 'ping') return json({ ok: true });
+  if (p.action === 'pull') return json({ tables: pullAll() });
+  return json({ error: 'unknown action' });
+}
+
+function doPost(e) {
+  try {
+    var body = JSON.parse(e.postData.contents);
+    if (!checkToken(body.token)) return json({ error: 'unauthorized' });
+    if (body.action === 'push') {
+      return json({ ok: true, applied: pushAll(body.tables || {}) });
+    }
+    return json({ error: 'unknown action' });
+  } catch (err) {
+    return json({ error: String(err) });
+  }
+}
+
+function checkToken(token) {
+  var secret = PropertiesService.getScriptProperties().getProperty('SECRET');
+  if (!secret) return true; // 未設定なら認証なし
+  return token === secret;
+}
+
+function pullAll() {
+  var out = {};
+  Object.keys(SCHEMA).forEach(function (name) {
+    out[name] = readSheet(name, SCHEMA[name]);
+  });
+  return out;
+}
+
+function readSheet(name, def) {
+  var sh = getSheet(name, def);
+  var values = sh.getDataRange().getValues();
+  if (values.length < 2) return [];
+  var header = values[0];
+  var rows = [];
+  for (var i = 1; i < values.length; i++) {
+    var obj = {};
+    for (var j = 0; j < header.length; j++) obj[header[j]] = cellOut(values[i][j]);
+    if (obj[def.pk] === '' || obj[def.pk] === null) continue;
+    rows.push(obj);
+  }
+  return rows;
+}
+
+function pushAll(tables) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var applied = 0;
+    Object.keys(tables).forEach(function (name) {
+      var def = SCHEMA[name];
+      if (def) applied += upsertRows(name, def, tables[name]);
+    });
+    return applied;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function upsertRows(name, def, rows) {
+  if (!rows || !rows.length) return 0;
+  var sh = getSheet(name, def);
+  var width = def.cols.length;
+  var lastRow = Math.max(sh.getLastRow(), 1);
+  var values = sh.getRange(1, 1, lastRow, width).getValues();
+  var header = values[0];
+  var pkIdx = header.indexOf(def.pk);
+  var tsIdx = header.indexOf('updated_at');
+
+  // pk -> values 配列内のインデックス
+  var index = {};
+  for (var i = 1; i < values.length; i++) {
+    var pk = values[i][pkIdx];
+    if (pk !== '' && pk !== null) index[String(pk)] = i;
+  }
+
+  var applied = 0;
+  var dirty = false;
+  rows.forEach(function (r) {
+    var pk = String(r[def.pk] == null ? '' : r[def.pk]);
+    if (pk === '') return;
+    var rowArr = def.cols.map(function (c) {
+      return r[c] === undefined || r[c] === null ? '' : r[c];
+    });
+    var i = index[pk];
+    if (i === undefined) {
+      values.push(rowArr);
+      index[pk] = values.length - 1;
+      applied++; dirty = true;
+    } else if (tsCompare(r.updated_at, values[i][tsIdx]) > 0) {
+      // Last-Write-Wins: 受信側が新しいときだけ上書き
+      values[i] = rowArr;
+      applied++; dirty = true;
+    }
+  });
+
+  // 変更があれば 1 回だけまとめて書き込む（行ごとの setValues 連打を回避）
+  if (dirty) {
+    sh.getRange(1, 1, values.length, width).setValues(values);
+  }
+  return applied;
+}
+
+/**
+ * updated_at を「型に依存せず」比較する。
+ *  - Date 型（シートが日付に自動変換した場合）→ getTime()
+ *  - 数値（epoch等）→ そのまま
+ *  - 文字列（ISO "2026-05-29T10:45:42Z" / "2026-05-29 10:45:42" 等）→ Date.parse
+ * いずれも数値に正規化して比較するため、元の文字列比較で起きていた
+ * 「形式違いで更新が一生反映されない」事故を防ぐ。
+ * 両方とも数値化できない場合のみ文字列比較にフォールバック。
+ * 戻り値: a>b で +1 / a<b で -1 / 同じで 0
+ */
+function tsCompare(a, b) {
+  var na = tsValue(a), nb = tsValue(b);
+  if (na === null && nb === null) {
+    var sa = a == null ? '' : String(a);
+    var sb = b == null ? '' : String(b);
+    return sa < sb ? -1 : (sa > sb ? 1 : 0);
+  }
+  if (na === null) return -1; // 比較不能な側は「古い」扱い
+  if (nb === null) return 1;
+  return na < nb ? -1 : (na > nb ? 1 : 0);
+}
+
+function tsValue(v) {
+  if (v === '' || v === null || v === undefined) return null;
+  if (Object.prototype.toString.call(v) === '[object Date]') return v.getTime();
+  if (typeof v === 'number') return v;
+  var t = Date.parse(v);
+  return isNaN(t) ? null : t;
+}
+
+/**
+ * 読み出し時、セルが Date 型だった場合は UTC の ISO 風文字列に整形して返す。
+ * アプリ側の updated_at は UTC ISO なので、TZ を UTC に固定してズレを防ぐ。
+ * 文字列・数値はそのまま返す。
+ */
+function cellOut(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    return Utilities.formatDate(v, 'UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
+  }
+  return v;
+}
+
+// スプレッドシート取得: スクリプトプロパティ SPREADSHEET_ID があればそれを開く。
+// 無ければ(スプレッドシートにバインドされたスクリプトなら)アクティブなものを使う。
+function getSpreadsheet() {
+  var id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  if (id) return SpreadsheetApp.openById(id);
+  var active = SpreadsheetApp.getActiveSpreadsheet();
+  if (active) return active;
+  throw new Error(
+    'スプレッドシートが見つかりません。スクリプトプロパティ SPREADSHEET_ID に対象シートのIDを設定してください。',
+  );
+}
+
+function getSheet(name, def) {
+  var ss = getSpreadsheet();
+  var sh = ss.getSheetByName(name);
+  if (!sh) sh = ss.insertSheet(name);
+  var width = def.cols.length;
+  var firstRow = sh.getRange(1, 1, 1, width).getValues()[0];
+  // 先頭列だけでなく全列を検証して、欠け・ズレがあればヘッダを張り直す
+  var needs = false;
+  for (var i = 0; i < width; i++) {
+    if (String(firstRow[i]) !== def.cols[i]) { needs = true; break; }
+  }
+  if (needs) sh.getRange(1, 1, 1, width).setValues([def.cols]);
+  return sh;
+}
+
+function json(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(
+    ContentService.MimeType.JSON,
+  );
+}
