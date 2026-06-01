@@ -13,7 +13,6 @@ import Animated, {
 import { Clock } from './Clock';
 import { R, S, F, shadow } from '../lib/theme';
 import { WeatherVisual } from '../lib/weather';
-import { nowTimeHms } from '../lib/time';
 
 export type HeroStyle = 'aurora' | 'tide' | 'editorial';
 export const HERO_STYLES: HeroStyle[] = ['aurora', 'tide', 'editorial'];
@@ -42,20 +41,14 @@ interface Palette {
   blob: [string, string, string];
 }
 
-function jstHour(): number {
-  return parseInt(nowTimeHms().slice(0, 2), 10) || 0;
-}
-
-/** 時間帯で移ろう配色(Apple の動的壁紙風)。暖色基調を保ち、夜だけ藍へ。 */
+/** 固定の暖色パレット(スクショの配色: クリーム→琥珀→珊瑚)。 */
 function palette(): Palette {
-  const h = jstHour();
-  if (h >= 5 && h < 11)
-    return { grad: ['#FCDFB0', '#F4A988', '#EC8FA8'], on: '#3A2418', soft: 'rgba(58,36,24,0.70)', blob: ['#FFE9C9', '#F6A0B0', '#FFCDA0'] };
-  if (h >= 11 && h < 17)
-    return { grad: ['#FFE6B4', '#F6B36B', '#EE9A6E'], on: '#3A2410', soft: 'rgba(58,36,16,0.68)', blob: ['#FFF1D2', '#FFC487', '#F7A98C'] };
-  if (h >= 17 && h < 20)
-    return { grad: ['#F4AE72', '#E8765A', '#864F94'], on: '#FFF4EA', soft: 'rgba(255,244,234,0.88)', blob: ['#FFC58C', '#E87A6A', '#9B5FA8'] };
-  return { grad: ['#3C3C70', '#574A86', '#272745'], on: '#FFFFFF', soft: 'rgba(255,255,255,0.82)', blob: ['#5A5AA0', '#7E5FA8', '#3A3A66'] };
+  return {
+    grad: ['#FFE6B4', '#F6B36B', '#EE9A6E'],
+    on: '#3A2410',
+    soft: 'rgba(58,36,16,0.68)',
+    blob: ['#FFF1D2', '#FFC487', '#F7A98C'],
+  };
 }
 
 // ===== オーロラ: 暖色グラデ＋ゆっくり漂う光ブロブ＋ガラス =====

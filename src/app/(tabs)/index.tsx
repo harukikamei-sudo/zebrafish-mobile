@@ -6,7 +6,7 @@ import { Screen } from '@/ui/Screen';
 import { Card, Btn, Notice, ProgressBar, Muted } from '@/ui/primitives';
 import { NavTile, SectionHeader, LinkCard } from '@/ui/nav';
 import { ShrimpIcon } from '@/ui/Icon';
-import { Hero, HeroStyle, HERO_STYLES } from '@/ui/Hero';
+import { Hero } from '@/ui/Hero';
 import { Collapsible } from '@/ui/Collapsible';
 import { LogLines } from '@/ui/LogLines';
 import { Reveal } from '@/ui/Reveal';
@@ -27,10 +27,6 @@ export default function DashboardScreen() {
   const tick = useReload();
   const [weather, setWeather] = useState<{ vis: WeatherVisual; temp: number | null } | null>(null);
   const [hello] = useState(() => greetingParts());
-  // 起動(リロード)ごとにアートをランダムに選び、そのセッション中は固定。
-  const [heroStyle] = useState<HeroStyle>(
-    () => HERO_STYLES[Math.floor(Math.random() * HERO_STYLES.length)],
-  );
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<{ kind: 'success' | 'error' | 'info'; text: string } | null>(null);
 
@@ -102,10 +98,10 @@ export default function DashboardScreen() {
 
   return (
     <Screen>
-      {/* ヒーロー: 起動(リロード)ごとにアートが変わる(オーロラ / タイド / エディトリアル) */}
+      {/* ヒーロー: オーロラ(暖色・漂う光)で固定 */}
       <Reveal>
         <Hero
-          styleName={heroStyle}
+          styleName="aurora"
           greeting={hello.greeting}
           sub={hello.sub}
           weather={weather}
