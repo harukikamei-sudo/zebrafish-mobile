@@ -46,14 +46,7 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "6ae37cf7-6de6-497f-b03c-3de69f2660ff"
-      }
-    },
-    "owner": "haruki2y489329480",
-    "updates": {
-      "url": "https://u.expo.dev/6ae37cf7-6de6-497f-b03c-3de69f2660ff"
+      "router": {}
     }
   }
 }
