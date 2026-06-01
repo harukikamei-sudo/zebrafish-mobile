@@ -11,7 +11,7 @@ import { useReload } from '@/hooks/useReload';
 import { bumpData } from '@/state/store';
 import { addFeed, countToday, lastFedAt, todayLogs, allFeedingLogs, undoLastToday } from '@/db/feeding';
 import { logAction } from '@/db/logs';
-import { hoursSince, timeHm, toJstWall } from '@/lib/time';
+import { hoursSince, timeHm, timeHms, toJstWall } from '@/lib/time';
 import { FEEDS_PER_DAY, FEED_WARN_HOURS, FEED_ALERT_HOURS } from '@/lib/constants';
 import { toCsv, shareCsv } from '@/lib/csv';
 import { C, S, R, F } from '@/lib/theme';
@@ -109,10 +109,10 @@ export default function FeedingScreen() {
           <>
             <Table
               columns={[
-                { key: 'time', label: '時刻', width: 70, render: (r: any) => <Text style={styles.cell}>{timeHm(r.fed_at)}</Text> },
+                { key: 'time', label: '時刻', width: 88, render: (r: any) => <Text style={styles.cell}>{timeHms(r.fed_at)}</Text> },
                 { key: 'memo', label: 'メモ', width: 200 },
               ]}
-              rows={data.today.map((l) => ({ ...l, time: timeHm(l.fed_at), memo: l.memo ?? '—' }))}
+              rows={data.today.map((l) => ({ ...l, time: timeHms(l.fed_at), memo: l.memo ?? '—' }))}
             />
             <Btn label="⬅️ 直近の1件を取り消す" small onPress={onUndo} style={{ alignSelf: 'flex-start' }} />
           </>

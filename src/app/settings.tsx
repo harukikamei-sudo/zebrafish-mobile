@@ -17,6 +17,7 @@ import {
   removeTier,
 } from '@/db/settings';
 import { logAction } from '@/db/logs';
+import { toJstWall } from '@/lib/time';
 import {
   getSheetUrl,
   setSheetUrl,
@@ -220,13 +221,8 @@ function AddRemoveCard({
 }
 
 function formatSync(iso: string): string {
-  // UTC ISO → ローカル表示
-  try {
-    const d = new Date(iso);
-    return d.toLocaleString();
-  } catch {
-    return iso;
-  }
+  // UTC ISO → JST 壁時計(秒まで)。表示を全画面でJSTに統一する。
+  return toJstWall(iso) ?? iso;
 }
 
 const styles = StyleSheet.create({

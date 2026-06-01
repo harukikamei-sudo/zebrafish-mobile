@@ -25,7 +25,7 @@ import {
 } from '@/db/trials';
 import { logAction } from '@/db/logs';
 import { fmtCounts } from '@/lib/format';
-import { addDays, todayJst } from '@/lib/time';
+import { addDays, todayJst, toJstWall } from '@/lib/time';
 import { TRIAL_BADGE } from '@/lib/constants';
 import { toCsv, shareCsv } from '@/lib/csv';
 import { C, S, F } from '@/lib/theme';
@@ -173,6 +173,7 @@ export default function TrialsScreen() {
           { key: 'sf', label: '♀水槽', width: 96 },
           { key: 'eggs', label: '採卵数', width: 56, align: 'right' },
           { key: 'rate', label: '受精率%', width: 60, align: 'right' },
+          { key: 'collected', label: '採卵日時', width: 150 },
         ]}
         rows={done.map((t) => ({
           no: t.trial_no ?? '—',
@@ -182,6 +183,7 @@ export default function TrialsScreen() {
           sf: t.source_tank_female ?? '—',
           eggs: t.egg_count ?? '—',
           rate: t.fertilization_rate ?? '—',
+          collected: t.egg_collected_at ? (toJstWall(t.egg_collected_at) ?? t.egg_collected_at) : '—',
         }))}
         emptyText="完了・中止のトライアルはありません"
       />
@@ -260,6 +262,10 @@ function ActiveTrialCard({ trial: t }: { trial: Trial }) {
       <KV k="♂ × ♀" v={`${mShow} × ${fShow}`} />
       <KV k="交配用水槽" v={t.breeding_tank_id ?? '—'} />
       <KV k="戻し先" v={`♂${t.source_tank_male ?? '-'} / ♀${t.source_tank_female ?? '-'}`} />
+      {t.setup_at && <KV k="前日セット" v={toJstWall(t.setup_at) ?? t.setup_at} />}
+      {t.divider_removed_at && <KV k="仕切り取り出し" v={toJstWall(t.divider_removed_at) ?? t.divider_removed_at} />}
+      {t.egg_collected_at && <KV k="採卵" v={toJstWall(t.egg_collected_at) ?? t.egg_collected_at} />}
+      {t.returned_at && <KV k="戻し完了" v={toJstWall(t.returned_at) ?? t.returned_at} />}
 
       <Divider />
 

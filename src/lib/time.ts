@@ -111,6 +111,14 @@ export function timeHm(iso: string | null | undefined): string {
   return parts.length > 1 ? parts[1].slice(0, 5) : '—';
 }
 
+/** 時刻部分 "HH:MM:SS"(秒まで) を取り出す(JST壁時計に正規化。UTC ISO 等も JST へ) */
+export function timeHms(iso: string | null | undefined): string {
+  const wall = toJstWall(iso);
+  if (!wall) return '—';
+  const parts = wall.split(' ');
+  return parts.length > 1 ? parts[1] : '—';
+}
+
 type Period = 'morning' | 'afternoon' | 'evening' | 'night';
 
 function currentPeriod(): Period {
