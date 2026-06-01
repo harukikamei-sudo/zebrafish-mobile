@@ -11,7 +11,7 @@ import { useReload } from '@/hooks/useReload';
 import { bumpData } from '@/state/store';
 import { addFeed, countToday, lastFedAt, todayLogs, allFeedingLogs, undoLastToday } from '@/db/feeding';
 import { logAction } from '@/db/logs';
-import { hoursSince, timeHm } from '@/lib/time';
+import { hoursSince, timeHm, toJstWall } from '@/lib/time';
 import { FEEDS_PER_DAY, FEED_WARN_HOURS, FEED_ALERT_HOURS } from '@/lib/constants';
 import { toCsv, shareCsv } from '@/lib/csv';
 import { C, S, R, F } from '@/lib/theme';
@@ -123,7 +123,7 @@ export default function FeedingScreen() {
       <Collapsible title="📜 過去の給餌ログ（全件）">
         <Table
           columns={[
-            { key: 'fed_at', label: '日時', width: 150 },
+            { key: 'fed_at', label: '日時', width: 150, render: (r: any) => <Text style={styles.cell}>{toJstWall(r.fed_at) ?? r.fed_at}</Text> },
             { key: 'memo', label: 'メモ', width: 200 },
           ]}
           rows={data.all.map((l) => ({ ...l, memo: l.memo ?? '—' }))}

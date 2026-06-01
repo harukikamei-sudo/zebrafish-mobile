@@ -35,8 +35,9 @@ function parseJstToEpoch(iso: string): number | null {
 
 /** 指定した JST 時刻文字列から現在までの経過時間(時間)。不正なら null */
 export function hoursSince(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  const t = parseJstToEpoch(iso);
+  const wall = toJstWall(iso);
+  if (!wall) return null;
+  const t = parseJstToEpoch(wall);
   if (t === null) return null;
   return (Date.now() - t) / 3_600_000;
 }
@@ -67,10 +68,46 @@ export function formatJpDate(dateStr: string): string {
   return `${y}年 ${mo}月 ${d}日（${wd}）`;
 }
 
-/** 時刻部分 "HH:MM" を取り出す(JST壁時計文字列から) */
+/**
+ * 任意の日時表現を JST 壁時計 "YYYY-MM-DD HH:MM:SS" に正規化する。
+ * ドメイン時刻(fed_at 等)は JST 壁時計で保持する規約だが、Google Sheets がセルを
+ * 日付型と解釈し、同期経由で UTC ISO("…T…Z")やスラッシュ区切りに化けることがある。
+ * その取り違えを吸収して常に JST 壁時計へ戻す。
+ *  - "YYYY-MM-DD HH:MM:SS"(壁時計) はそのまま
+ *  - "YYYY/MM/DD …" のスラッシュ区切りはハイフンへ統一
+ *  - "…T…Z" / 末尾オフセット付きの UTC ISO は実エポックとみなし +9h して壁時計化
+ *  - 解釈できなければ原文を返す
+ */
+export function toJstWall(s: string | null | undefined): string | null {
+  if (s === null || s === undefined) return null;
+  const str = String(s).trim();
+  if (!str) return str;
+  // 絶対時刻(UTC ISO 等): 'T' 区切りで末尾に Z もしくは ±HH:MM のオフセットを持つ
+  const isAbsolute = str.includes('T') && /(Z|[+-]\d{2}:?\d{2})$/.test(str);
+  if (isAbsolute) {
+    const t = Date.parse(str);
+    if (!Number.isNaN(t)) {
+      const d = new Date(t + JST_OFFSET_MS);
+      return (
+        `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}` +
+        ` ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
+      );
+    }
+  }
+  // 壁時計表記: 区切りを '-' / 半角スペースに統一し、秒まで補う
+  const m = str.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);
+  if (m) {
+    const [, y, mo, d, hh, mm, ss] = m;
+    return `${y}-${pad(+mo)}-${pad(+d)} ${pad(+hh)}:${pad(+mm)}:${pad(ss ? +ss : 0)}`;
+  }
+  return str;
+}
+
+/** 時刻部分 "HH:MM" を取り出す(JST壁時計文字列から。UTC ISO 等が来ても JST に正規化) */
 export function timeHm(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const parts = iso.split(' ');
+  const wall = toJstWall(iso);
+  if (!wall) return '—';
+  const parts = wall.split(' ');
   return parts.length > 1 ? parts[1].slice(0, 5) : '—';
 }
 

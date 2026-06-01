@@ -24,10 +24,11 @@ export function logAction(category: string, target?: string | null, details?: st
   }
 }
 
+/** ホーム画面用の最近のログ。同期ログ(自動/手動)はノイズになるため除外する(履歴=allLogs には残す)。 */
 export function recentLogs(limit = 5): ActivityLog[] {
   return all<ActivityLog>(
     `SELECT id, occurred_at, category, actor, target, details
-     FROM activity_logs WHERE deleted = 0
+     FROM activity_logs WHERE deleted = 0 AND category != '同期'
      ORDER BY occurred_at DESC, rowid DESC LIMIT ?`,
     [limit],
   );

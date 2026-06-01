@@ -3,6 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 
 import { C, S, R, F } from '../lib/theme';
 import { humanizeLog, LogRow } from '../lib/format';
+import { toJstWall } from '../lib/time';
 
 export interface LogLineItem extends LogRow {
   occurred_at: string;
@@ -20,7 +21,7 @@ export function LogLines({ rows, bare = false }: { rows: LogLineItem[]; bare?: b
           <View style={styles.dot} />
           <View style={{ flex: 1 }}>
             <Text style={styles.msg}>{humanizeLog(r)}</Text>
-            <Text style={styles.ts}>{r.occurred_at}</Text>
+            <Text style={styles.ts}>{toJstWall(r.occurred_at) ?? r.occurred_at}</Text>
           </View>
         </View>
       ))}

@@ -100,7 +100,7 @@ function readSheet(name, def) {
   var rows = [];
   for (var i = 1; i < values.length; i++) {
     var obj = {};
-    for (var j = 0; j < header.length; j++) obj[header[j]] = cellOut(values[i][j]);
+    for (var j = 0; j < header.length; j++) obj[header[j]] = cellOut(header[j], values[i][j]);
     if (obj[def.pk] === '' || obj[def.pk] === null) continue;
     rows.push(obj);
   }
@@ -197,13 +197,19 @@ function tsValue(v) {
 }
 
 /**
- * 読み出し時、セルが Date 型だった場合は UTC の ISO 風文字列に整形して返す。
- * アプリ側の updated_at は UTC ISO なので、TZ を UTC に固定してズレを防ぐ。
+ * 読み出し時、セルが Date 型(シートが日付に自動変換)だった場合の整形。列の役割で変換先を分ける。
+ *  - updated_at(同期用タイムスタンプ): アプリ規約に合わせ UTC ISO で返す。
+ *  - それ以外のドメイン時刻(fed_at / occurred_at / set_date 等): JST 壁時計のまま保持すべき値。
+ *    UTC へ変換すると 9 時間ズレる(例: 18:48→09:48Z)ため、シートのロケールに依らず
+ *    Asia/Tokyo の壁時計表記 "yyyy-MM-dd HH:mm:ss" へ戻す。
  * 文字列・数値はそのまま返す。
  */
-function cellOut(v) {
+function cellOut(col, v) {
   if (Object.prototype.toString.call(v) === '[object Date]') {
-    return Utilities.formatDate(v, 'UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
+    if (col === 'updated_at') {
+      return Utilities.formatDate(v, 'UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
+    }
+    return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
   }
   return v;
 }
@@ -239,4 +245,72 @@ function json(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(
     ContentService.MimeType.JSON,
   );
+}
+
+// ============================================================================
+// 【ワンショット保守】過去のバグで焼き付いた UTC ISO 文字列を JST 壁時計へ一括変換
+//  使い方: Apps Script エディタ上部の関数ドロップダウンで fixWallClockColumns を
+//          選び「実行」。Web アプリの再デプロイは不要(エディタ実行のみ)。
+//  何度実行しても安全(既に壁時計の値は対象外)。updated_at は UTC のまま残す。
+// ============================================================================
+
+// JST 壁時計で保持すべきドメイン時刻列(updated_at は同期判定用 UTC なので含めない)
+var WALL_CLOCK_COLUMNS = {
+  tanks: ['set_date'],
+  feeding_logs: ['fed_at'],
+  spawning_records: ['spawning_date'],
+  mating_trials: ['planned_date', 'setup_at', 'divider_removed_at', 'egg_collected_at', 'returned_at'],
+  activity_logs: ['occurred_at'],
+};
+
+/**
+ * 値を JST 壁時計 "yyyy-MM-dd HH:mm:ss" に正規化する。変換不要なら null を返す。
+ *  - Date 型セル(シートが日付に自動変換) → Asia/Tokyo の壁時計
+ *  - "…T…Z" / 末尾オフセット付きの UTC ISO 文字列 → 実時刻に直し Asia/Tokyo 壁時計
+ *  - 既に壁時計 / その他 → null(触らない)
+ */
+function toJstWallGs(v) {
+  if (v === '' || v === null || v === undefined) return null;
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  }
+  if (typeof v !== 'string') return null;
+  var s = v.trim();
+  var isAbsolute = s.indexOf('T') >= 0 && /(Z|[+-]\d{2}:?\d{2})$/.test(s);
+  if (isAbsolute) {
+    var t = Date.parse(s);
+    if (!isNaN(t)) return Utilities.formatDate(new Date(t), 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
+  }
+  return null;
+}
+
+/** 全シートのドメイン時刻列をスキャンし、UTC ISO 等を JST 壁時計へ書き換える。 */
+function fixWallClockColumns() {
+  var ss = getSpreadsheet();
+  var report = [];
+  Object.keys(WALL_CLOCK_COLUMNS).forEach(function (name) {
+    var sh = ss.getSheetByName(name);
+    if (!sh) return;
+    var rng = sh.getDataRange();
+    var values = rng.getValues();
+    if (values.length < 2) return;
+    var header = values[0];
+    var changed = 0;
+    WALL_CLOCK_COLUMNS[name].forEach(function (col) {
+      var ci = header.indexOf(col);
+      if (ci < 0) return;
+      for (var i = 1; i < values.length; i++) {
+        var fixed = toJstWallGs(values[i][ci]);
+        if (fixed !== null && fixed !== values[i][ci]) {
+          values[i][ci] = fixed;
+          changed++;
+        }
+      }
+    });
+    if (changed > 0) rng.setValues(values);
+    report.push(name + ': ' + changed + ' 件修正');
+  });
+  var msg = report.join('\n') || '対象シートなし';
+  Logger.log(msg);
+  return msg;
 }

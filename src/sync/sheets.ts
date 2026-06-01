@@ -8,8 +8,22 @@ import { all, first, run, tx } from '../db/database';
 import { SYNC_TABLES, SyncTableDef } from '../db/schema';
 import { getLocal, setLocal } from '../db/settings';
 import { logAction } from '../db/logs';
-import { nowUtcIso } from '../lib/time';
+import { nowUtcIso, toJstWall } from '../lib/time';
 import { bumpData } from '../state/store';
+
+/**
+ * JST 壁時計で保持する時刻列。Sheets がセルを日付型と解釈すると pull 時に UTC ISO へ
+ * 化けることがあるため、取り込み時にここの列だけ JST 壁時計へ正規化してから保存する。
+ * (updated_at は UTC ISO のまま保持するので含めない)
+ */
+const WALL_CLOCK_COLS = new Set([
+  'fed_at',
+  'occurred_at',
+  'setup_at',
+  'divider_removed_at',
+  'egg_collected_at',
+  'returned_at',
+]);
 
 // 多重実行ガードと自動同期のデバウンス
 let _busy = false;
@@ -64,6 +78,9 @@ function upsertRaw(def: SyncTableDef, row: Record<string, any>): void {
       if (v === '' || v === null) return c === 'deleted' ? 0 : null;
       const n = Number(v);
       return Number.isNaN(n) ? null : n;
+    }
+    if (WALL_CLOCK_COLS.has(c) && v !== null && v !== '') {
+      return toJstWall(String(v));
     }
     return v === '' ? '' : v === null ? null : String(v);
   });
