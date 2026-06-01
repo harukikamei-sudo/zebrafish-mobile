@@ -1,0 +1,36 @@
+name: EAS Update (preview)
+
+# main に push されると、daichi1234 の EAS プロジェクトの preview ブランチへ
+# 自動で OTA 配信する。手動実行(workflow_dispatch)も可能。
+# 必要な設定: リポジトリの Secrets に EXPO_TOKEN (daichi1234 のアクセストークン) を登録。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  update:
+    name: Publish preview update
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Publish update to preview
+        run: eas update --branch preview --message "GitHub Actions #${{ github.run_number }}"
