@@ -44,8 +44,11 @@ export default function TrialsScreen() {
   const tick = useReload();
   const racks = useMemo(() => loadRacks(), [tick]);
   const tanks = useMemo(() => listTanks(), [tick]);
-  const active = useMemo(() => activeTrials(), [tick]);
-  const done = useMemo(() => doneTrials(), [tick]);
+  // 進行中/完了リストは登録・操作の直後に確実に反映させるため毎描画で取得する。
+  // (useMemo の tick 依存だと、交配タブにフォーカスしたまま登録した直後は再計算が走らず
+  //  「進行中のトライアルはありません」のまま残ることがあった)
+  const active = activeTrials();
+  const done = doneTrials();
   const series = useMemo(() => fertilizationSeries(), [tick]);
 
   // --- 新規計画 ---
