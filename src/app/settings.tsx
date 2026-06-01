@@ -5,7 +5,7 @@ import { Screen } from '@/ui/Screen';
 import { Card, SectionLabel, Btn, Notice, Muted, Pill, Divider, H3, KV } from '@/ui/primitives';
 import { Field, TextField, Select } from '@/ui/inputs';
 import { useReload } from '@/hooks/useReload';
-import { bumpData } from '@/state/store';
+import { bumpData, showToast } from '@/state/store';
 import {
   getLocal,
   setLocal,
@@ -175,6 +175,7 @@ function AddRemoveCard({
     if (r.ok) {
       setInput('');
       bumpData();
+      showToast(r.msg || '追加しました');
     } else {
       Alert.alert('追加できません', r.msg);
     }
@@ -185,6 +186,7 @@ function AddRemoveCard({
     if (r.ok) {
       setSel(null);
       bumpData();
+      showToast(r.msg || '削除しました', 'info');
     } else {
       Alert.alert('削除できません', r.msg);
     }

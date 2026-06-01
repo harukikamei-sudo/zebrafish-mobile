@@ -25,3 +25,41 @@ function getSnapshot(): number {
 export function useDataVersion(): number {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
+
+/**
+ * トースト通知。操作成功などを画面下に数秒だけ出す即時フィードバック。
+ * showToast() をどの画面/DB操作からでも呼べる(グローバル)。表示は ToastHost が担う。
+ */
+export interface Toast {
+  msg: string;
+  kind: 'success' | 'error' | 'info';
+  id: number;
+}
+let toast: Toast | null = null;
+let toastSeq = 0;
+const toastListeners = new Set<() => void>();
+let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function showToast(msg: string, kind: Toast['kind'] = 'success'): void {
+  toastSeq += 1;
+  toast = { msg, kind, id: toastSeq };
+  toastListeners.forEach((l) => l());
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    toast = null;
+    toastListeners.forEach((l) => l());
+  }, 2400);
+}
+
+function subToast(cb: () => void): () => void {
+  toastListeners.add(cb);
+  return () => toastListeners.delete(cb);
+}
+function getToast(): Toast | null {
+  return toast;
+}
+
+/** 現在のトースト(なければ null)。ToastHost が購読する。 */
+export function useToast(): Toast | null {
+  return useSyncExternalStore(subToast, getToast, getToast);
+}

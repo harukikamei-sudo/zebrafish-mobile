@@ -8,7 +8,7 @@ import { Collapsible } from '@/ui/Collapsible';
 import { Table } from '@/ui/Table';
 import { LineChart } from '@/ui/LineChart';
 import { useReload } from '@/hooks/useReload';
-import { bumpData } from '@/state/store';
+import { bumpData, showToast } from '@/state/store';
 import { listTanks } from '@/db/tanks';
 import { loadRacks } from '@/db/settings';
 import { fertilizationSeries } from '@/db/spawning';
@@ -53,6 +53,7 @@ export default function TrialsScreen() {
   const [pairs, setPairs] = useState<PairInput[]>([emptyPair()]);
   const [planned, setPlanned] = useState(addDays(todayJst(), 1));
   const [notes, setNotes] = useState('');
+  const [formOpen, setFormOpen] = useState(false);
 
   const inRack = (id: string) => id.startsWith(`${rack}-`);
   const optLabel = (t: (typeof tanks)[number]) => {
@@ -97,16 +98,17 @@ export default function TrialsScreen() {
       nos.push(no);
       logAction('トライアル計画', `#${no}`, `♂${p.srcM} × ♀${p.srcF}${p.breed ? ` / 交配槽${p.breed}` : ''} / 予定${planned}`);
     });
-    Alert.alert('完了', `🎉 ${nos.length} 件のトライアルを登録しました（#${nos.join(', #')}）`);
     setPairs([emptyPair()]);
     setNotes('');
+    setFormOpen(false);
     bumpData();
+    showToast(`🎉 ${nos.length} 件のトライアルを登録しました（#${nos.join(', #')}）`);
   };
 
   return (
     <Screen title="交配トライアル" subtitle="元水槽・交配用水槽を指定して交配を計画します。">
       {/* 新規計画 */}
-      <Collapsible title="➕ 新規トライアルを計画する（一括登録対応）">
+      <Collapsible title="➕ 新規トライアルを計画する（一括登録対応）" open={formOpen} onOpenChange={setFormOpen}>
         <Field label="① 対象ラック" hint="同ラック内でペアを組む前提です">
           <Select value={rack} options={racks.map((r) => ({ label: r, value: r }))} onSelect={onRackChange} />
         </Field>
@@ -233,6 +235,7 @@ function ActiveTrialCard({ trial: t }: { trial: Trial }) {
     logAction('採卵', `#${t.trial_no}`, `卵 ${eggs} 個 / 受精率 ${rateVal}%`);
     setCollecting(false);
     bumpData();
+    showToast(`🥚 採卵を記録しました（#${t.trial_no}）`);
   };
 
   const confirmCancel = () => {
@@ -245,6 +248,7 @@ function ActiveTrialCard({ trial: t }: { trial: Trial }) {
           cancelTrial(t.id);
           logAction('トライアル中止', `#${t.trial_no}`);
           bumpData();
+          showToast(`トライアル #${t.trial_no} を中止しました`, 'info');
         },
       },
     ]);
@@ -278,6 +282,7 @@ function ActiveTrialCard({ trial: t }: { trial: Trial }) {
             markSetup(t.id);
             logAction('トライアル前日セット', `#${t.trial_no}`);
             bumpData();
+            showToast(`前日セット完了（#${t.trial_no}）`);
           }}
         />
       )}
@@ -292,6 +297,7 @@ function ActiveTrialCard({ trial: t }: { trial: Trial }) {
               markDividerRemoved(t.id);
               logAction('仕切り取り出し', `#${t.trial_no}`);
               bumpData();
+              showToast(`仕切り取り出しを記録（#${t.trial_no}）`);
             }}
           />
           {!collecting ? (
@@ -323,6 +329,7 @@ function ActiveTrialCard({ trial: t }: { trial: Trial }) {
             markReturned(t.id);
             logAction('トライアル戻し完了', `#${t.trial_no}`);
             bumpData();
+            showToast(`戻し完了（#${t.trial_no}）`);
           }}
         />
       )}

@@ -12,7 +12,7 @@ import { Collapsible } from '@/ui/Collapsible';
 import { LogLines } from '@/ui/LogLines';
 import { Reveal } from '@/ui/Reveal';
 import { useReload } from '@/hooks/useReload';
-import { bumpData } from '@/state/store';
+import { bumpData, showToast } from '@/state/store';
 import { listTanks } from '@/db/tanks';
 import { listSpawning } from '@/db/spawning';
 import { activeTrials } from '@/db/trials';
@@ -76,6 +76,7 @@ export default function DashboardScreen() {
     addFeed(null);
     logAction('餌やり', null, 'ダッシュボードから');
     bumpData();
+    showToast('🦐 餌やりを記録しました');
   };
 
   const onSync = async () => {

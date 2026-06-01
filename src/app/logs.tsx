@@ -8,7 +8,7 @@ import { Collapsible } from '@/ui/Collapsible';
 import { Table } from '@/ui/Table';
 import { LogLines } from '@/ui/LogLines';
 import { useReload } from '@/hooks/useReload';
-import { bumpData } from '@/state/store';
+import { bumpData, showToast } from '@/state/store';
 import { allLogs, purgeBefore, logAction, ActivityLog } from '@/db/logs';
 import { addDays, todayJst } from '@/lib/time';
 import { toCsv, shareCsv } from '@/lib/csv';
@@ -67,6 +67,7 @@ export default function LogsScreen() {
     const n = purgeBefore(purgeDate);
     logAction('ログ削除', null, `${purgeDate} 以前（${n}件）`);
     bumpData();
+    showToast(`🗑️ ${n} 件のログを削除しました`, 'info');
   };
 
   const onExport = () => {

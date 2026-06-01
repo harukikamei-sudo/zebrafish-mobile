@@ -12,15 +12,22 @@ export function Collapsible({
   title,
   children,
   defaultOpen = false,
+  open: openProp,
+  onOpenChange,
 }: {
   title: string;
   children: React.ReactNode;
   defaultOpen?: boolean;
+  /** 制御したい場合に渡す(省略時は内部 state で開閉) */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [openState, setOpenState] = useState(defaultOpen);
+  const open = openProp ?? openState;
   const toggle = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-    setOpen((o) => !o);
+    if (onOpenChange) onOpenChange(!open);
+    else setOpenState((o) => !o);
   };
   return (
     <View style={styles.wrap}>

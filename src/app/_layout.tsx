@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { db } from '@/db/database';
 import { AutoSync } from '@/ui/AutoSync';
+import { ToastHost } from '@/ui/Toast';
 import { C } from '@/lib/theme';
 
 export default function RootLayout() {
@@ -35,6 +36,7 @@ export default function RootLayout() {
           <Stack.Screen name="logs" options={{ title: 'アクティビティログ' }} />
           <Stack.Screen name="settings" options={{ title: '設定' }} />
         </Stack>
+        <ToastHost />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

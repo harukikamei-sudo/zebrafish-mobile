@@ -8,7 +8,7 @@ import { ShrimpIcon } from '@/ui/Icon';
 import { Collapsible } from '@/ui/Collapsible';
 import { Table } from '@/ui/Table';
 import { useReload } from '@/hooks/useReload';
-import { bumpData } from '@/state/store';
+import { bumpData, showToast } from '@/state/store';
 import { addFeed, countToday, lastFedAt, todayLogs, allFeedingLogs, undoLastToday } from '@/db/feeding';
 import { logAction } from '@/db/logs';
 import { hoursSince, timeHm, timeHms, toJstWall } from '@/lib/time';
@@ -48,10 +48,14 @@ export default function FeedingScreen() {
     logAction('餌やり', null, memo.trim() || '全水槽給餌');
     setMemo('');
     bumpData();
+    showToast('🦐 餌やりを記録しました');
   };
 
   const onUndo = () => {
-    if (undoLastToday()) bumpData();
+    if (undoLastToday()) {
+      bumpData();
+      showToast('直近の餌やりを取り消しました', 'info');
+    }
   };
 
   return (

@@ -9,7 +9,7 @@ import { Collapsible } from '@/ui/Collapsible';
 import { Table } from '@/ui/Table';
 import { LocationPicker, LocationValue } from '@/ui/LocationPicker';
 import { useReload } from '@/hooks/useReload';
-import { bumpData } from '@/state/store';
+import { bumpData, showToast } from '@/state/store';
 import { listTanks, getTank, upsertTank, deleteTank, swapTanks, importTankRow, Tank } from '@/db/tanks';
 import { loadRacks, loadTiers } from '@/db/settings';
 import { logAction } from '@/db/logs';
@@ -82,8 +82,8 @@ export default function TanksScreen() {
       loc.tankId,
       `♂${m} / ♀${f} / ?${u}` + (total > 0 ? ` / ${health}` : ' / 空'),
     );
-    Alert.alert('完了', `水槽 ${loc.tankId}（${total === 0 ? '空' : `${total}匹`}）を登録/更新しました`);
     bumpData();
+    showToast(`水槽 ${loc.tankId}（${total === 0 ? '空' : `${total}匹`}）を登録/更新しました`);
   };
 
   // --- フィルタ ---
@@ -212,8 +212,8 @@ function SwapSection({ tanks }: { tanks: Tank[] }) {
     }
     swapTanks(a, b);
     logAction('水槽スワップ', `${a} ↔ ${b}`);
-    Alert.alert('完了', `水槽 ${a} と ${b} の中身を入れ替えました`);
     bumpData();
+    showToast(`水槽 ${a} と ${b} の中身を入れ替えました`);
   };
 
   return (
@@ -292,10 +292,10 @@ function ImportSection({ racks, tiers }: { racks: string[]; tiers: string[] }) {
       }
     });
     logAction('水槽登録/更新', 'CSV一括', `${ok}件取込` + (ng ? ` / 失敗${ng}` : ''));
-    Alert.alert('完了', `🎉 ${ok} 件を登録/更新しました` + (ng ? `（失敗 ${ng} 件）` : ''));
     setRows(null);
     setErrors([]);
     bumpData();
+    showToast(`🎉 ${ok} 件を登録/更新しました` + (ng ? `（失敗 ${ng} 件）` : ''));
   };
 
   return (
@@ -364,6 +364,7 @@ function DeleteSection({ tanks }: { tanks: Tank[] }) {
         onPress: () => {
           deleteTank(del);
           logAction('水槽削除', del);
+          showToast(`水槽 ${del} を削除しました`, 'info');
           setDel(null);
           bumpData();
         },
