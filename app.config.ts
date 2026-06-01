@@ -10,8 +10,8 @@ import { ExpoConfig, ConfigContext } from 'expo/config';
 //  ▲▲▲ 変更後の流れ: `eas login`(新アカウント) → `eas update --branch preview -m "..."`
 //      → 新しい QR / リンクを配り直す。詳細は アカウント移行手順.md を参照 ▲▲▲
 // =====================================================================
-const EAS_OWNER = 'haruki2y489329480';
-const EAS_PROJECT_ID = '6ae37cf7-6de6-497f-b03c-3de69f2660ff';
+const EAS_OWNER = 'daichi1234';
+const EAS_PROJECT_ID = '98d245dd-cdc1-47c6-9fb3-560249d283f8';
 
 // 基本設定は app.json に置き、ここでは EAS アカウント関連だけを上書きする。
 export default ({ config }: ConfigContext): ExpoConfig => ({
