@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { router } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 
 import { Screen } from '@/ui/Screen';
 import { Card, Btn, Notice, ProgressBar, Muted } from '@/ui/primitives';
 import { NavTile, SectionHeader, LinkCard } from '@/ui/nav';
 import { ShrimpIcon } from '@/ui/Icon';
-import { Clock } from '@/ui/Clock';
+import { Hero, HeroStyle, HERO_STYLES } from '@/ui/Hero';
 import { Collapsible } from '@/ui/Collapsible';
 import { LogLines } from '@/ui/LogLines';
 import { Reveal } from '@/ui/Reveal';
@@ -21,13 +20,17 @@ import { addFeed, countToday, lastFedAt } from '@/db/feeding';
 import { syncNow, getSheetUrl } from '@/sync/sheets';
 import { hoursSince, timeHm, greetingParts } from '@/lib/time';
 import { FEEDS_PER_DAY, FEED_WARN_HOURS, FEED_ALERT_HOURS } from '@/lib/constants';
-import { fetchWeather, weatherVisual, WeatherVisual, DEFAULT_HERO } from '@/lib/weather';
-import { C, S, R, F, shadow } from '@/lib/theme';
+import { fetchWeather, weatherVisual, WeatherVisual } from '@/lib/weather';
+import { C, S, F } from '@/lib/theme';
 
 export default function DashboardScreen() {
   const tick = useReload();
   const [weather, setWeather] = useState<{ vis: WeatherVisual; temp: number | null } | null>(null);
   const [hello] = useState(() => greetingParts());
+  // 起動(リロード)ごとにアートをランダムに選び、そのセッション中は固定。
+  const [heroStyle] = useState<HeroStyle>(
+    () => HERO_STYLES[Math.floor(Math.random() * HERO_STYLES.length)],
+  );
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<{ kind: 'success' | 'error' | 'info'; text: string } | null>(null);
 
@@ -97,38 +100,16 @@ export default function DashboardScreen() {
     }
   };
 
-  const hero = weather ? weather.vis : DEFAULT_HERO;
-
   return (
     <Screen>
-      {/* ヒーロー(天気で背景が変わる・iPhone天気アプリ風) */}
+      {/* ヒーロー: 起動(リロード)ごとにアートが変わる(オーロラ / タイド / エディトリアル) */}
       <Reveal>
-        <View style={[shadow.float, { borderRadius: R.xxl }]}>
-          <View style={styles.heroClip}>
-            <LinearGradient
-              colors={hero.grad}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <View style={styles.hero}>
-              <Text style={[styles.eyebrow, { color: hero.softColor }]}>ZEBRAFISH LAB</Text>
-              <Text style={[styles.greeting, { color: hero.onColor }]}>{hello.greeting}</Text>
-              <Text style={[styles.sub, { color: hero.softColor }]}>{hello.sub}</Text>
-              <View style={styles.heroSub}>
-                <Clock style={[styles.clock, { color: hero.softColor }]} />
-                {weather ? (
-                  <View style={[styles.weatherChip, { backgroundColor: hero.chipBg }]}>
-                    <Text style={[styles.weatherText, { color: hero.chipFg }]}>
-                      {weather.vis.emoji} {weather.vis.label}
-                      {weather.temp !== null ? `　${Math.round(weather.temp)}°` : ''}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-            </View>
-          </View>
-        </View>
+        <Hero
+          styleName={heroStyle}
+          greeting={hello.greeting}
+          sub={hello.sub}
+          weather={weather}
+        />
       </Reveal>
 
       {/* 最近のアクティビティ(餌やりの上・折りたたみ可) */}
@@ -246,22 +227,6 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  heroClip: { borderRadius: R.xxl, overflow: 'hidden' },
-  hero: { padding: S.five, gap: 4 },
-  eyebrow: { color: C.accentDeep, fontSize: F.tiny, letterSpacing: 2.5, fontWeight: '800' },
-  greeting: { color: C.text, fontSize: F.hero, fontWeight: '800', letterSpacing: -0.8 },
-  sub: { color: C.textSoft, fontSize: F.body, fontWeight: '600', marginTop: 1 },
-  heroSub: { flexDirection: 'row', alignItems: 'center', gap: S.two, flexWrap: 'wrap', marginTop: 8 },
-  clock: { color: C.text, fontSize: F.small, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  weatherChip: {
-    backgroundColor: C.glassFillStrong,
-    borderRadius: 999,
-    paddingHorizontal: 11,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: C.glassEdge,
-  },
-  weatherText: { color: C.accentDeep, fontSize: F.small, fontWeight: '700' },
   feedHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   feedTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   feedTitle: { fontSize: F.h3, fontWeight: '700', color: C.text },
