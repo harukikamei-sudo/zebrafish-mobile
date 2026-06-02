@@ -17,7 +17,7 @@ const EAS_PROJECT_ID = 'fcaa7ed9-76e2-446d-ac2d-344ae3710b4f';
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: config.name ?? 'zebrafish-mobile',
-  slug: config.slug ?? 'zebrafish-mobile',
+  slug: config.slug ?? 'zebrafish',
   owner: EAS_OWNER,
   extra: {
     ...config.extra,
