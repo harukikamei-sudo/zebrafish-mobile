@@ -6,7 +6,7 @@ import { SectionLabel, Metric, Notice, Muted } from '@/ui/primitives';
 import { useReload } from '@/hooks/useReload';
 import { listTanks, Tank } from '@/db/tanks';
 import { loadRacks, loadTiers } from '@/db/settings';
-import { COLS, HEALTH_COLOR, EMPTY_COLOR } from '@/lib/constants';
+import { COLS, EMPTY_COLOR, SEX_COLOR, SEX_COLOR_SOFT, SexKey } from '@/lib/constants';
 import { fmtCounts } from '@/lib/format';
 import { C, S, R, F } from '@/lib/theme';
 
@@ -28,11 +28,9 @@ export default function RackScreen() {
     return m;
   }, [tanks]);
 
-  const good = tanks.filter((t) => t.health_status === '良好').length;
-  const isolated = tanks.filter((t) => t.health_status === '隔離中').length;
-  const empty = tanks.filter(
-    (t) => (t.male_count || 0) + (t.female_count || 0) + (t.unknown_count || 0) === 0,
-  ).length;
+  const totalMale = tanks.reduce((s, t) => s + (t.male_count || 0), 0);
+  const totalFemale = tanks.reduce((s, t) => s + (t.female_count || 0), 0);
+  const totalUnknown = tanks.reduce((s, t) => s + (t.unknown_count || 0), 0);
 
   const showTank = (t: Tank) => {
     Alert.alert(
@@ -45,21 +43,22 @@ export default function RackScreen() {
     <Screen>
       <Muted>
         {racks.length} ラック × {tiers.length} 段 × {COLS.length} 列 ＝ 最大{' '}
-        {racks.length * tiers.length * COLS.length} 水槽。色は健康状態を示します。
+        {racks.length * tiers.length * COLS.length} 水槽。色は性別構成(♂ / ♀ / ？)を示します。
       </Muted>
 
       {/* 凡例 */}
       <View style={styles.legend}>
-        <Legend color={HEALTH_COLOR['良好']} label="良好" />
-        <Legend color={HEALTH_COLOR['隔離中']} label="隔離中" />
+        <Legend color={SEX_COLOR.male} label="♂ オス" />
+        <Legend color={SEX_COLOR.female} label="♀ メス" />
+        <Legend color={SEX_COLOR.unknown} label="？ 不明" />
         <Legend color={EMPTY_COLOR} label="空 / 未登録" />
       </View>
 
       <View style={styles.metricsRow}>
         <Metric label="登録済み" value={tanks.length} />
-        <Metric label="良好" value={good} />
-        <Metric label="隔離中" value={isolated} color={isolated ? C.danger : C.text} />
-        <Metric label="空" value={empty} />
+        <Metric label="♂ オス" value={totalMale} color={SEX_COLOR.male} />
+        <Metric label="♀ メス" value={totalFemale} color={SEX_COLOR.female} />
+        <Metric label="？ 不明" value={totalUnknown} color={C.textSoft} />
       </View>
 
       {tanks.length === 0 ? (
@@ -87,14 +86,12 @@ export default function RackScreen() {
                     <Text style={styles.tierLabel}>段{tier}</Text>
                     {COLS.map((c) => {
                       const t = byLoc.get(`${rack}|${tier}|${c}`);
-                      const total = t
-                        ? (t.male_count || 0) + (t.female_count || 0) + (t.unknown_count || 0)
-                        : 0;
-                      const bg = !t
-                        ? EMPTY_COLOR
-                        : total === 0
-                          ? EMPTY_COLOR
-                          : HEALTH_COLOR[t.health_status ?? ''] ?? '#E8DDC8';
+                      const m = t?.male_count || 0;
+                      const f = t?.female_count || 0;
+                      const u = t?.unknown_count || 0;
+                      const total = m + f + u;
+                      const dominant = dominantSex(m, f, u);
+                      const bg = !t || total === 0 ? EMPTY_COLOR : SEX_COLOR_SOFT[dominant];
                       return (
                         <Pressable
                           key={c}
@@ -102,6 +99,15 @@ export default function RackScreen() {
                           disabled={!t}
                           onPress={() => t && showTank(t)}>
                           <Text style={styles.cellText}>{!t ? '—' : total === 0 ? '·' : total}</Text>
+                          {total > 0 && (
+                            <View style={styles.sexBar}>
+                              {m > 0 && <View style={{ flex: m, backgroundColor: SEX_COLOR.male }} />}
+                              {f > 0 && <View style={{ flex: f, backgroundColor: SEX_COLOR.female }} />}
+                              {u > 0 && (
+                                <View style={{ flex: u, backgroundColor: SEX_COLOR.unknown }} />
+                              )}
+                            </View>
+                          )}
                         </Pressable>
                       );
                     })}
@@ -114,6 +120,13 @@ export default function RackScreen() {
       )}
     </Screen>
   );
+}
+
+/** 最も多い性別を返す(同数や全0のときは不明扱い)。セルの地色に使う。 */
+function dominantSex(m: number, f: number, u: number): SexKey {
+  if (m > f && m > u) return 'male';
+  if (f > m && f > u) return 'female';
+  return 'unknown';
 }
 
 function Legend({ color, label }: { color: string; label: string }) {
@@ -140,6 +153,15 @@ const styles = StyleSheet.create({
     borderRadius: R.sm,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   cellText: { fontSize: F.tiny, color: '#3C3530', fontWeight: '600' },
+  sexBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 5,
+    flexDirection: 'row',
+  },
 });

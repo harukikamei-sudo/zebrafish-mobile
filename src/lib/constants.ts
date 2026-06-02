@@ -28,6 +28,20 @@ export const HEALTH_COLOR: Record<string, string> = {
 };
 export const EMPTY_COLOR = '#F5F2EC';
 
+/** 棚ビューの性別色(構成比バー用の鮮明色) */
+export type SexKey = 'male' | 'female' | 'unknown';
+export const SEX_COLOR: Record<SexKey, string> = {
+  male: '#7FA8D4', // ♂ 青
+  female: '#E68AA0', // ♀ 桃
+  unknown: '#C7B79F', // ？ 温グレー
+};
+/** セル背景用のやわらかい淡色(多数派の性別を地色で示す) */
+export const SEX_COLOR_SOFT: Record<SexKey, string> = {
+  male: '#DCE8F4',
+  female: '#F7DDE4',
+  unknown: '#EAE2D5',
+};
+
 export const TRIAL_BADGE: Record<string, string> = {
   計画中: '🟦',
   前日セット済み: '🟨',
