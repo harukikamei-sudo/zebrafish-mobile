@@ -33,4 +33,4 @@ jobs:
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Publish update to preview
-        run: eas update --branch preview --message "GitHub Actions #${{ github.run_number }}"
+        run: eas update --branch preview --message "GitHub Actions run ${{ github.run_number }}"
