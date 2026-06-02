@@ -6,6 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { db } from '@/db/database';
 import { AutoSync } from '@/ui/AutoSync';
+import { SyncGate } from '@/ui/SyncGate';
 import { ToastHost } from '@/ui/Toast';
 import { C } from '@/lib/theme';
 
@@ -21,21 +22,23 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <StatusBar style="dark" />
         <AutoSync />
-        <Stack
-          screenOptions={{
-            headerStyle: { backgroundColor: C.bgTop },
-            headerShadowVisible: false,
-            headerTintColor: C.accentDeep,
-            headerTitleStyle: { fontWeight: '800', color: C.text },
-            headerBackButtonDisplayMode: 'minimal',
-            contentStyle: { backgroundColor: C.bg },
-          }}>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'ホーム' }} />
-          <Stack.Screen name="rack" options={{ title: '棚ビュー' }} />
-          <Stack.Screen name="analysis" options={{ title: '成績分析' }} />
-          <Stack.Screen name="logs" options={{ title: 'アクティビティログ' }} />
-          <Stack.Screen name="settings" options={{ title: '設定' }} />
-        </Stack>
+        <SyncGate>
+          <Stack
+            screenOptions={{
+              headerStyle: { backgroundColor: C.bgTop },
+              headerShadowVisible: false,
+              headerTintColor: C.accentDeep,
+              headerTitleStyle: { fontWeight: '800', color: C.text },
+              headerBackButtonDisplayMode: 'minimal',
+              contentStyle: { backgroundColor: C.bg },
+            }}>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'ホーム' }} />
+            <Stack.Screen name="rack" options={{ title: '棚ビュー' }} />
+            <Stack.Screen name="analysis" options={{ title: '成績分析' }} />
+            <Stack.Screen name="logs" options={{ title: 'アクティビティログ' }} />
+            <Stack.Screen name="settings" options={{ title: '設定' }} />
+          </Stack>
+        </SyncGate>
         <ToastHost />
       </SafeAreaProvider>
     </GestureHandlerRootView>

@@ -7,6 +7,7 @@
 import { all, first, run, tx } from '../db/database';
 import { SYNC_TABLES, SyncTableDef } from '../db/schema';
 import { getLocal, setLocal } from '../db/settings';
+import { DEFAULT_SHEET_URL, DEFAULT_SHEET_TOKEN } from './config';
 import { logAction } from '../db/logs';
 import { nowUtcIso, toJstWall } from '../lib/time';
 import { bumpData } from '../state/store';
@@ -33,8 +34,9 @@ export function isSyncing(): boolean {
   return _busy;
 }
 
+/** 同期先 URL。ローカル設定が空なら内蔵の既定 URL(配信時注入)を使う。 */
 export function getSheetUrl(): string {
-  return getLocal('sheet_url', '') ?? '';
+  return (getLocal('sheet_url', '') ?? '').trim() || DEFAULT_SHEET_URL;
 }
 
 export function setSheetUrl(url: string): void {
@@ -45,8 +47,16 @@ export function getLastSync(): string | null {
   return getLocal('last_sync_at', null);
 }
 
+/**
+ * 共有トークン。ローカル設定が空のときは:
+ * - ローカル URL も未設定(＝内蔵の既定 URL を使用)なら内蔵の既定トークンを使う
+ * - ローカル URL を独自入力している場合は、既定トークンを混ぜない(空)
+ */
 export function getSheetToken(): string {
-  return getLocal('sheet_token', '') ?? '';
+  const localToken = (getLocal('sheet_token', '') ?? '').trim();
+  if (localToken) return localToken;
+  const localUrl = (getLocal('sheet_url', '') ?? '').trim();
+  return localUrl ? '' : DEFAULT_SHEET_TOKEN;
 }
 
 export function setSheetToken(token: string): void {

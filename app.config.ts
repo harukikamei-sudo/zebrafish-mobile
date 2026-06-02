@@ -22,6 +22,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   extra: {
     ...config.extra,
     eas: { ...(config.extra?.eas ?? {}), projectId: EAS_PROJECT_ID },
+    // 既定の同期先。配信時に GitHub Secrets から注入される(公開ソースには値を載せない)。
+    // ローカル未設定時のフォールバックとして使う(src/sync/config.ts)。
+    sheetUrl: process.env.SHEET_URL ?? '',
+    sheetToken: process.env.SHEET_TOKEN ?? '',
   },
   updates: {
     ...config.updates,
