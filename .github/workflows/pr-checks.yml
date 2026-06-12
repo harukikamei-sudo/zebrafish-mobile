@@ -1,0 +1,35 @@
+name: PR Checks
+
+# PR に対して最低限の健全性チェックを行う。
+# mainへのマージ＝EAS Update 自動配信(全員のアプリへ即反映)なので、
+# マージ前に「型が通る・GAS が構文エラーでない」ことを機械的に保証する。
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    name: Typecheck & GAS syntax
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript typecheck
+        run: npx tsc --noEmit
+
+      - name: Code.gs syntax check
+        run: |
+          cp src/sync/Code.gs /tmp/code_gs_check.js
+          node --check /tmp/code_gs_check.js
