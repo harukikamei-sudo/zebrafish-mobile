@@ -1,11 +1,15 @@
 name: PR Checks
 
-# PR に対して最低限の健全性チェックを行う。
+# 最低限の健全性チェック(型が通る・GAS が構文エラーでない)を機械的に保証する。
 # mainへのマージ＝EAS Update 自動配信(全員のアプリへ即反映)なので、
-# マージ前に「型が通る・GAS が構文エラーでない」ことを機械的に保証する。
+# - pull_request: マージ前の検証(基本はこちらを通す)
+# - push(main): 直接 push された場合の事後検知用セーフティネット
+# 配信本体は eas-update.yml(push main)が担い、本ワークフローは検証のみ。
 
 on:
   pull_request:
+    branches: [main]
+  push:
     branches: [main]
   workflow_dispatch: {}
 
