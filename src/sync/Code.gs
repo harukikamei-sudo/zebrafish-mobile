@@ -13,8 +13,14 @@
  *       - アクセスできるユーザー: 全員
  *  5. 発行された /exec で終わる URL をアプリの 設定 → データ同期 に貼り付ける
  *
+ * ▼ 更新(再デプロイ)手順 ― 本ファイルを変更したら必ず行う
+ *  1. Apps Script エディタで本ファイルの内容を貼り替えて保存
+ *  2. デプロイ → デプロイを管理 → 既存デプロイの編集(鉛筆) → バージョン「新バージョン」→ デプロイ
+ *     ※「新しいデプロイ」を作ると URL が変わってしまうので注意。上記なら URL は不変。
+ *
  * シートはテーブルごとに自動作成され、ヘッダ行も自動で用意されます。
  * レコードは主キーで突き合わせ、updated_at の新しい方を採用します(Last-Write-Wins)。
+ * 末尾の srv_at 列はサーバーが書込時に押す時刻で、アプリの増分同期に使います(手編集しない)。
  *
  * ▼ 既存データの移行（CSV）
  *  各テーブル名と同名のシートタブを作り、File → インポート → アップロード で
@@ -57,6 +63,10 @@ var SCHEMA = {
   },
 };
 
+// サーバー側の最終書込時刻列(増分 pull の透かし)。アプリへは返さず、シート内だけで使う。
+// updated_at(端末時計)と違いサーバー時計で押すので、端末間の時計ズレで取りこぼさない。
+var SRV_COL = 'srv_at';
+
 function doGet(e) {
   var p = (e && e.parameter) || {};
   if (!checkToken(p.token)) return json({ error: 'unauthorized' });
@@ -72,9 +82,45 @@ function doPost(e) {
     if (body.action === 'push') {
       return json({ ok: true, applied: pushAll(body.tables || {}) });
     }
+    if (body.action === 'sync') {
+      return json(syncCombined(body));
+    }
     return json({ error: 'unknown action' });
   } catch (err) {
     return json({ error: String(err) });
+  }
+}
+
+/**
+ * push と増分 pull を 1 リクエストで処理する(従来は pull GET + push POST の 2 往復)。
+ * ロック内で「since より後にサーバーで書かれた行」を集めてから push を適用するので、
+ * 自分が今 push した行は応答に混ざらず、他端末の書込は取りこぼさない。
+ * 応答の serverNow を端末が保存し、次回の since に使う。
+ */
+function syncCombined(body) {
+  var lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    var since = body.since == null ? '' : String(body.since);
+    var changes = {};
+    Object.keys(SCHEMA).forEach(function (name) {
+      var rows = readSheet(name, SCHEMA[name], since);
+      if (rows.length) changes[name] = rows;
+    });
+    var applied = 0;
+    var tables = body.tables || {};
+    Object.keys(tables).forEach(function (name) {
+      var def = SCHEMA[name];
+      if (def) applied += upsertRows(name, def, tables[name]);
+    });
+    return {
+      ok: true,
+      tables: changes,
+      applied: applied,
+      serverNow: new Date().toISOString(),
+    };
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -92,15 +138,30 @@ function pullAll() {
   return out;
 }
 
-function readSheet(name, def) {
+/**
+ * シートを読み出して行オブジェクト配列にする。
+ * since(UTC ISO)が指定された場合は srv_at がそれより後の行だけ返す(増分 pull)。
+ * srv_at が空の行(手編集・旧データ)は増分では拾えないため、アプリ側が
+ * 1 日 1 回行う全件 pull(since='')で回収する。
+ */
+function readSheet(name, def, since) {
   var sh = getSheet(name, def);
   var values = sh.getDataRange().getValues();
   if (values.length < 2) return [];
   var header = values[0];
+  var srvIdx = header.indexOf(SRV_COL);
+  var sinceTs = since ? tsValue(since) : null;
   var rows = [];
   for (var i = 1; i < values.length; i++) {
+    if (sinceTs !== null) {
+      var sv = srvIdx >= 0 ? tsValue(values[i][srvIdx]) : null;
+      if (sv === null || sv <= sinceTs) continue;
+    }
     var obj = {};
-    for (var j = 0; j < header.length; j++) obj[header[j]] = cellOut(header[j], values[i][j]);
+    for (var j = 0; j < header.length; j++) {
+      if (header[j] === SRV_COL) continue;
+      obj[header[j]] = cellOut(header[j], values[i][j]);
+    }
     if (obj[def.pk] === '' || obj[def.pk] === null) continue;
     rows.push(obj);
   }
@@ -125,12 +186,15 @@ function pushAll(tables) {
 function upsertRows(name, def, rows) {
   if (!rows || !rows.length) return 0;
   var sh = getSheet(name, def);
-  var width = def.cols.length;
+  var allCols = def.cols.concat([SRV_COL]);
+  var width = allCols.length;
   var lastRow = Math.max(sh.getLastRow(), 1);
   var values = sh.getRange(1, 1, lastRow, width).getValues();
   var header = values[0];
   var pkIdx = header.indexOf(def.pk);
   var tsIdx = header.indexOf('updated_at');
+  // 採用した行にはサーバー時計の書込時刻を押す(増分 pull の透かし)
+  var srvNow = new Date().toISOString();
 
   // pk -> values 配列内のインデックス
   var index = {};
@@ -144,7 +208,8 @@ function upsertRows(name, def, rows) {
   rows.forEach(function (r) {
     var pk = String(r[def.pk] == null ? '' : r[def.pk]);
     if (pk === '') return;
-    var rowArr = def.cols.map(function (c) {
+    var rowArr = allCols.map(function (c) {
+      if (c === SRV_COL) return srvNow;
       return r[c] === undefined || r[c] === null ? '' : r[c];
     });
     var i = index[pk];
@@ -230,14 +295,15 @@ function getSheet(name, def) {
   var ss = getSpreadsheet();
   var sh = ss.getSheetByName(name);
   if (!sh) sh = ss.insertSheet(name);
-  var width = def.cols.length;
+  var cols = def.cols.concat([SRV_COL]);
+  var width = cols.length;
   var firstRow = sh.getRange(1, 1, 1, width).getValues()[0];
   // 先頭列だけでなく全列を検証して、欠け・ズレがあればヘッダを張り直す
   var needs = false;
   for (var i = 0; i < width; i++) {
-    if (String(firstRow[i]) !== def.cols[i]) { needs = true; break; }
+    if (String(firstRow[i]) !== cols[i]) { needs = true; break; }
   }
-  if (needs) sh.getRange(1, 1, 1, width).setValues([def.cols]);
+  if (needs) sh.getRange(1, 1, 1, width).setValues([cols]);
   return sh;
 }
 

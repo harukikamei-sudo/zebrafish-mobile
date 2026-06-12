@@ -3,8 +3,13 @@
  * Google Apps Script の Web アプリ(doGet/doPost, JSON)をエンドポイントにして、
  * テーブルごとにレコード単位の Last-Write-Wins(updated_at 比較) でマージする。
  * 削除は deleted=1 のトンボストーンとして同期される。
+ *
+ * 通信は原則 1 回(action='sync': push と増分 pull を同時に処理)。増分 pull は
+ * サーバー時計で押す srv_at 透かしに基づくため端末間の時計ズレの影響を受けない。
+ * シートを直接手編集した場合は srv_at が動かないので、1 日 1 回の全件 pull で回収する。
+ * 旧バージョンの GAS(sync 未対応)には従来の pull→push 2 回通信へフォールバックする。
  */
-import { all, first, run, tx } from '../db/database';
+import { all, run, tx } from '../db/database';
 import { SYNC_TABLES, SyncTableDef } from '../db/schema';
 import { getLocal, setLocal } from '../db/settings';
 import { DEFAULT_SHEET_URL, DEFAULT_SHEET_TOKEN } from './config';
@@ -127,59 +132,105 @@ export async function testConnection(url: string): Promise<boolean> {
   return data?.ok === true;
 }
 
-/** 同期本体。pull(全件) → LWW マージ → push(前回同期以降の変更) */
-export async function syncNow(): Promise<SyncResult> {
-  const url = getSheetUrl();
-  if (!url) throw new Error('同期先 URL が未設定です。設定画面で入力してください。');
-  if (_busy) throw new Error('同期処理中です。少し待ってください。');
-  _busy = true;
-  try {
-
-  // ===== PULL(全件取得して LWW でローカルへ反映) =====
-  const pullResp = await fetch(buildUrl(url, { action: 'pull' }));
-  if (!pullResp.ok) throw new Error(`取得エラー (HTTP ${pullResp.status})`);
-  const pullData = await pullResp.json();
-  if (pullData?.error) throw new Error(`サーバー: ${pullData.error}`);
-  const tables = pullData?.tables ?? {};
-
+/** 受信テーブル群をレコード単位 LWW でローカルへ反映し、適用件数を返す */
+function mergeTables(tables: Record<string, Record<string, any>[]>): number {
   let pulled = 0;
   tx(() => {
     for (const def of SYNC_TABLES) {
       const remoteRows: Record<string, any>[] = tables[def.table] ?? [];
+      if (!remoteRows.length) continue;
+      // 行ごとの SELECT は全件 pull 時に数千回になるため、一括で読んで Map 化する
+      const locals = all<{ pk: any; updated_at: string | null }>(
+        `SELECT ${def.pk} AS pk, updated_at FROM ${def.table}`,
+      );
+      const localTs = new Map(locals.map((r) => [String(r.pk), r.updated_at]));
       for (const r of remoteRows) {
         const pkVal = r[def.pk];
         if (pkVal === undefined || pkVal === null || pkVal === '') continue;
-        const local = first<{ updated_at: string | null }>(
-          `SELECT updated_at FROM ${def.table} WHERE ${def.pk} = ?`,
-          [String(pkVal)],
-        );
-        if (!local || tsNewer(r.updated_at, local.updated_at)) {
+        const key = String(pkVal);
+        if (!localTs.has(key) || tsNewer(r.updated_at, localTs.get(key))) {
           upsertRaw(def, r);
           pulled++;
         }
       }
     }
   });
+  return pulled;
+}
 
-  // ===== PUSH(前回同期以降に変更されたローカル行) =====
-  const lastSync = getLastSync() ?? '';
-  const payloadTables: Record<string, any[]> = {};
-  let pushed = 0;
+/** 指定時刻より後に変更されたローカル行を push 用ペイロードに集める(空テーブルは省く) */
+function buildPushPayload(since: string): { tables: Record<string, any[]>; count: number } {
+  const tables: Record<string, any[]> = {};
+  let count = 0;
   for (const def of SYNC_TABLES) {
     const cols = [def.pk, ...def.columns];
     const rows = all<Record<string, any>>(
       `SELECT ${cols.join(',')} FROM ${def.table} WHERE COALESCE(updated_at,'') > ?`,
-      [lastSync],
+      [since],
     );
-    payloadTables[def.table] = rows;
-    pushed += rows.length;
+    if (rows.length) {
+      tables[def.table] = rows;
+      count += rows.length;
+    }
   }
-  const pushResp = await postJson(url, { action: 'push', tables: payloadTables });
-  if (pushResp?.error) throw new Error(`サーバー: ${pushResp.error}`);
+  return { tables, count };
+}
 
-  setLocal('last_sync_at', nowUtcIso());
-  bumpData();
-  return { pulled, pushed };
+/** 旧 GAS 向けフォールバック: 従来どおり pull(全件)→push の 2 回通信 */
+async function legacySync(url: string, pushTables: Record<string, any[]>): Promise<number> {
+  const pullResp = await fetch(buildUrl(url, { action: 'pull' }));
+  if (!pullResp.ok) throw new Error(`取得エラー (HTTP ${pullResp.status})`);
+  const pullData = await pullResp.json();
+  if (pullData?.error) throw new Error(`サーバー: ${pullData.error}`);
+  const pulled = mergeTables(pullData?.tables ?? {});
+  const pushResp = await postJson(url, { action: 'push', tables: pushTables });
+  if (pushResp?.error) throw new Error(`サーバー: ${pushResp.error}`);
+  return pulled;
+}
+
+const FULL_PULL_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/** 同期本体。push(前回同期以降の変更) と pull(サーバー側増分) を 1 リクエストで行う */
+export async function syncNow(): Promise<SyncResult> {
+  const url = getSheetUrl();
+  if (!url) throw new Error('同期先 URL が未設定です。設定画面で入力してください。');
+  if (_busy) throw new Error('同期処理中です。少し待ってください。');
+  _busy = true;
+  try {
+    // 基準時刻は同期の「開始前」に取る。最後に取ると、通信中に行った編集の
+    // updated_at が基準時刻より過去になり、その行が二度と push されなくなる
+    // (前日セット完了が他端末へ届かないバグの原因)。開始前なら次回必ず拾われ、
+    // 重複送信になってもサーバー側 LWW が弾くだけで無害。
+    const cutoff = nowUtcIso();
+
+    // 過去バグで取り残された行の救済: 一度だけ全行を push する。
+    // サーバー側 LWW がシートより新しい行だけ採用するので安全。
+    const rescued = getLocal('repush_rescue_v1', null) === 'done';
+    const lastSync = rescued ? (getLastSync() ?? '') : '';
+    const { tables: pushTables, count: pushed } = buildPushPayload(lastSync);
+
+    // 増分 pull の透かし(サーバー時計)。期限切れ・未保持なら全件 pull('')
+    const fullAt = getLocal('last_full_pull_at', '') ?? '';
+    const fullExpired = !fullAt || Date.now() - Date.parse(fullAt) > FULL_PULL_INTERVAL_MS;
+    const since = fullExpired ? '' : (getLocal('server_since', '') ?? '');
+
+    let pulled = 0;
+    const resp = await postJson(url, { action: 'sync', since, tables: pushTables });
+    if (resp?.error === 'unknown action') {
+      // GAS が旧バージョン(要: Code.gs 再デプロイ)。従来方式で同期する
+      pulled = await legacySync(url, pushTables);
+      setLocal('server_since', null);
+    } else {
+      if (resp?.error) throw new Error(`サーバー: ${resp.error}`);
+      pulled = mergeTables(resp?.tables ?? {});
+      if (resp?.serverNow) setLocal('server_since', String(resp.serverNow));
+      if (!since) setLocal('last_full_pull_at', nowUtcIso());
+    }
+
+    setLocal('last_sync_at', cutoff);
+    if (!rescued) setLocal('repush_rescue_v1', 'done');
+    bumpData();
+    return { pulled, pushed };
   } finally {
     _busy = false;
   }
