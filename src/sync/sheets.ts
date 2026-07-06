@@ -14,6 +14,7 @@ import { SYNC_TABLES, SyncTableDef } from '../db/schema';
 import { getLocal, setLocal } from '../db/settings';
 import { DEFAULT_SHEET_URL, DEFAULT_SHEET_TOKEN } from './config';
 import { logAction } from '../db/logs';
+import { repairTrialNoDuplicates } from '../db/trials';
 import { nowUtcIso, toJstWall } from '../lib/time';
 import { bumpData } from '../state/store';
 
@@ -29,7 +30,14 @@ const WALL_CLOCK_COLS = new Set([
   'divider_removed_at',
   'egg_collected_at',
   'returned_at',
+  'set_date',
 ]);
+
+/**
+ * 日付のみ("YYYY-MM-DD")で保持する列。Sheets 経由で日付型・UTC ISO に化けた場合は
+ * JST に直したうえで日付部分だけ残す(時刻が付くと表示や「今日」判定が崩れる)。
+ */
+const DATE_ONLY_COLS = new Set(['planned_date', 'spawning_date']);
 
 // 多重実行ガードと自動同期のデバウンス
 let _busy = false;
@@ -45,7 +53,11 @@ export function getSheetUrl(): string {
 }
 
 export function setSheetUrl(url: string): void {
-  setLocal('sheet_url', url.trim() || null);
+  // 内蔵の既定 URL と同じ値は保存しない。設定画面は入力欄に既定値を表示するため、
+  // そのまま保存すると既定がローカルに焼き付き、配信側で既定 URL を更新しても
+  // その端末だけ古い同期先へ送り続けてしまう。
+  const v = url.trim();
+  setLocal('sheet_url', v && v !== DEFAULT_SHEET_URL ? v : null);
 }
 
 export function getLastSync(): string | null {
@@ -65,7 +77,9 @@ export function getSheetToken(): string {
 }
 
 export function setSheetToken(token: string): void {
-  setLocal('sheet_token', token.trim() || null);
+  // URL と同様、内蔵の既定トークンと同じ値は焼き付けない
+  const v = token.trim();
+  setLocal('sheet_token', v && v !== DEFAULT_SHEET_TOKEN ? v : null);
 }
 
 /** GET 用 URL にクエリを付与(token があれば付ける) */
@@ -96,6 +110,10 @@ function upsertRaw(def: SyncTableDef, row: Record<string, any>): void {
     }
     if (WALL_CLOCK_COLS.has(c) && v !== null && v !== '') {
       return toJstWall(String(v));
+    }
+    if (DATE_ONLY_COLS.has(c) && v !== null && v !== '') {
+      const wall = toJstWall(String(v));
+      return wall ? wall.slice(0, 10) : String(v);
     }
     return v === '' ? '' : v === null ? null : String(v);
   });
@@ -227,6 +245,10 @@ export async function syncNow(): Promise<SyncResult> {
       if (!since) setLocal('last_full_pull_at', nowUtcIso());
     }
 
+    // 複数端末が同時採番して trial_no が重複した場合はここで振り直す。
+    // 修正行は updated_at が cutoff より新しくなるため、次回の同期で必ず push される。
+    if (pulled > 0) repairTrialNoDuplicates();
+
     setLocal('last_sync_at', cutoff);
     if (!rescued) setLocal('repush_rescue_v1', 'done');
     bumpData();
@@ -237,20 +259,49 @@ export async function syncNow(): Promise<SyncResult> {
 }
 
 /**
- * 自動同期。URL未設定/同期中/直近15秒以内ならスキップ。
+ * 自動同期(起動時・復帰時・定期)。URL未設定/同期中/直近15秒以内ならスキップ。
  * 変化があった時だけログに残し、失敗(オフライン等)は黙ってスキップする。
  */
 export async function autoSync(): Promise<void> {
+  if (Date.now() - _lastAutoAt < 15000) return;
+  await runAutoSync();
+}
+
+async function runAutoSync(): Promise<void> {
   if (!getSheetUrl() || _busy) return;
-  const now = Date.now();
-  if (now - _lastAutoAt < 15000) return;
-  _lastAutoAt = now;
+  _lastAutoAt = Date.now();
   try {
     const r = await syncNow();
     if (r.pulled + r.pushed > 0) {
       logAction('同期', null, `自動 取込${r.pulled}/送信${r.pushed}`);
     }
   } catch {
-    // オフライン等は黙ってスキップ
+    // オフライン等は黙ってスキップ。デバウンスは戻し、次のトリガで即再試行できるようにする
+    _lastAutoAt = 0;
   }
+}
+
+// ===== 書込直後の自動同期 =====
+// DB 書込(bumpData)の数秒後にまとめて同期し、他端末へすぐ届くようにする。
+// 連続した記録(まとめて入力など)はデバウンスで 1 回の通信にまとめる。
+let _kickTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function scheduleAutoSync(delayMs = 3000): void {
+  // 同期処理自身も完了時に bumpData を呼ぶ(その間 _busy=true)。
+  // ここで弾かないと「同期→bumpData→また同期」の無限ループになる。
+  if (_busy || !getSheetUrl()) return;
+  armKick(delayMs);
+}
+
+function armKick(delayMs: number): void {
+  if (_kickTimer) clearTimeout(_kickTimer);
+  _kickTimer = setTimeout(() => {
+    _kickTimer = null;
+    if (_busy) {
+      // 別の同期が実行中。今回の書込はその push に乗っていない可能性があるため後で改めて
+      armKick(delayMs);
+      return;
+    }
+    void runAutoSync();
+  }, delayMs);
 }

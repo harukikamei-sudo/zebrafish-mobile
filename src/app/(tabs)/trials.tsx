@@ -44,11 +44,10 @@ export default function TrialsScreen() {
   const tick = useReload();
   const racks = useMemo(() => loadRacks(), [tick]);
   const tanks = useMemo(() => listTanks(), [tick]);
-  // 進行中/完了リストは登録・操作の直後に確実に反映させるため毎描画で取得する。
-  // (useMemo の tick 依存だと、交配タブにフォーカスしたまま登録した直後は再計算が走らず
-  //  「進行中のトライアルはありません」のまま残ることがあった)
-  const active = activeTrials();
-  const done = doneTrials();
+  // かつて「登録直後に反映されない」問題があったのは React Compiler の自動メモ化が
+  // 原因(app.json で無効化済み)。他画面と同じく tick 依存の useMemo で再取得する。
+  const active = useMemo(() => activeTrials(), [tick]);
+  const done = useMemo(() => doneTrials(), [tick]);
   const series = useMemo(() => fertilizationSeries(), [tick]);
 
   // --- 新規計画 ---
@@ -232,10 +231,11 @@ function ActiveTrialCard({ trial: t }: { trial: Trial }) {
   const fShow = t.female_id || t.female_tag || '—';
 
   const onCollect = () => {
+    // 未入力は 0% ではなく「未計測(null)」として記録する(成績分析の平均を歪めない)
     const r = parseFloat(rate);
-    const rateVal = Number.isNaN(r) ? 0 : Math.max(0, Math.min(100, r));
+    const rateVal = rate.trim() === '' || Number.isNaN(r) ? null : Math.max(0, Math.min(100, r));
     collectEggs(t, eggs, rateVal);
-    logAction('採卵', `#${t.trial_no}`, `卵 ${eggs} 個 / 受精率 ${rateVal}%`);
+    logAction('採卵', `#${t.trial_no}`, `卵 ${eggs} 個 / 受精率 ${rateVal === null ? '未計測' : `${rateVal}%`}`);
     setCollecting(false);
     bumpData();
     showToast(`🥚 採卵を記録しました（#${t.trial_no}）`);
@@ -311,7 +311,7 @@ function ActiveTrialCard({ trial: t }: { trial: Trial }) {
               <Field label="採卵数">
                 <NumberStepper value={eggs} onChange={setEggs} max={99999} />
               </Field>
-              <Field label="受精率(%)">
+              <Field label="受精率(%)" hint="空欄のままなら「未計測」として記録します">
                 <TextField value={rate} onChangeText={setRate} keyboardType="decimal-pad" placeholder="0〜100" />
               </Field>
               <View style={{ flexDirection: 'row', gap: S.two }}>

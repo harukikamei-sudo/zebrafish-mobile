@@ -10,9 +10,16 @@ const EPOCH = '1970-01-01T00:00:00.000Z';
 
 /** JST 壁時計で保持すべきドメイン時刻列(updated_at は UTC ISO のままなので含めない)。 */
 const WALL_CLOCK_COLUMNS: Record<string, string[]> = {
+  tanks: ['set_date'],
   feeding_logs: ['fed_at'],
   activity_logs: ['occurred_at'],
   mating_trials: ['setup_at', 'divider_removed_at', 'egg_collected_at', 'returned_at'],
+};
+
+/** 日付のみ("YYYY-MM-DD")で保持する列。UTC ISO 混入時は JST に直して日付部分だけ残す。 */
+const DATE_ONLY_COLUMNS: Record<string, string[]> = {
+  mating_trials: ['planned_date'],
+  spawning_records: ['spawning_date'],
 };
 
 let _db: SQLite.SQLiteDatabase | null = null;
@@ -35,19 +42,24 @@ export function db(): SQLite.SQLiteDatabase {
  * 壁時計表記は 'T' を含まないため対象から外れ、変換不要な行は更新しない(冪等)。
  */
 function migrateWallClockTimes(conn: SQLite.SQLiteDatabase): void {
-  for (const [table, cols] of Object.entries(WALL_CLOCK_COLUMNS)) {
-    for (const col of cols) {
-      const rows = conn.getAllSync<{ rid: number; v: string }>(
-        `SELECT rowid AS rid, ${col} AS v FROM ${table} WHERE ${col} LIKE '%T%'`,
-      );
-      for (const r of rows) {
-        const fixed = toJstWall(r.v);
-        if (fixed && fixed !== r.v) {
-          conn.runSync(`UPDATE ${table} SET ${col} = ? WHERE rowid = ?`, [fixed, r.rid]);
+  const fix = (map: Record<string, string[]>, dateOnly: boolean) => {
+    for (const [table, cols] of Object.entries(map)) {
+      for (const col of cols) {
+        const rows = conn.getAllSync<{ rid: number; v: string }>(
+          `SELECT rowid AS rid, ${col} AS v FROM ${table} WHERE ${col} LIKE '%T%'`,
+        );
+        for (const r of rows) {
+          let fixed = toJstWall(r.v);
+          if (dateOnly && fixed) fixed = fixed.slice(0, 10);
+          if (fixed && fixed !== r.v) {
+            conn.runSync(`UPDATE ${table} SET ${col} = ? WHERE rowid = ?`, [fixed, r.rid]);
+          }
         }
       }
     }
-  }
+  };
+  fix(WALL_CLOCK_COLUMNS, false);
+  fix(DATE_ONLY_COLUMNS, true);
 }
 
 function seed(conn: SQLite.SQLiteDatabase) {

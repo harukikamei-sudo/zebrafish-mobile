@@ -33,4 +33,10 @@ jobs:
           token: ${{ secrets.EXPO_TOKEN }}
 
       - name: Publish update to preview
+        env:
+          # 既定の同期先を配信物へ注入する(app.config.ts → extra.sheetUrl / sheetToken)。
+          # リポジトリの Secrets に SHEET_URL / SHEET_TOKEN を登録すると有効。
+          # 未登録なら空のまま(従来どおり各端末の初回設定画面で URL を入力する運用)。
+          SHEET_URL: ${{ secrets.SHEET_URL }}
+          SHEET_TOKEN: ${{ secrets.SHEET_TOKEN }}
         run: eas update --branch preview --message "GitHub Actions run ${{ github.run_number }}"
