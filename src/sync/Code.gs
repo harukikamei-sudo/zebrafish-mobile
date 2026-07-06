@@ -261,9 +261,13 @@ function tsValue(v) {
   return isNaN(t) ? null : t;
 }
 
+// 日付のみ("yyyy-MM-dd")で保持する列。時刻を付けるとアプリ側の表示・日付比較が崩れる。
+var DATE_ONLY_COLS = { planned_date: true, spawning_date: true };
+
 /**
  * 読み出し時、セルが Date 型(シートが日付に自動変換)だった場合の整形。列の役割で変換先を分ける。
  *  - updated_at(同期用タイムスタンプ): アプリ規約に合わせ UTC ISO で返す。
+ *  - 日付のみの列(planned_date / spawning_date): "yyyy-MM-dd" に戻す。
  *  - それ以外のドメイン時刻(fed_at / occurred_at / set_date 等): JST 壁時計のまま保持すべき値。
  *    UTC へ変換すると 9 時間ズレる(例: 18:48→09:48Z)ため、シートのロケールに依らず
  *    Asia/Tokyo の壁時計表記 "yyyy-MM-dd HH:mm:ss" へ戻す。
@@ -273,6 +277,9 @@ function cellOut(col, v) {
   if (Object.prototype.toString.call(v) === '[object Date]') {
     if (col === 'updated_at') {
       return Utilities.formatDate(v, 'UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
+    }
+    if (DATE_ONLY_COLS[col]) {
+      return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd');
     }
     return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy-MM-dd HH:mm:ss');
   }
@@ -367,6 +374,7 @@ function fixWallClockColumns() {
       if (ci < 0) return;
       for (var i = 1; i < values.length; i++) {
         var fixed = toJstWallGs(values[i][ci]);
+        if (fixed !== null && DATE_ONLY_COLS[col]) fixed = fixed.slice(0, 10);
         if (fixed !== null && fixed !== values[i][ci]) {
           values[i][ci] = fixed;
           changed++;

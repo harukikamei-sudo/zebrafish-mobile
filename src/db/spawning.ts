@@ -38,7 +38,8 @@ export interface SpawningInput {
   male_parent_id: string | null;
   female_parent_id: string | null;
   egg_count: number;
-  fertilization_rate: number;
+  /** 受精率(%)。未計測なら null(0% と区別して集計する) */
+  fertilization_rate: number | null;
 }
 
 /** 産卵成績を1件追加し、新しい id を返す */

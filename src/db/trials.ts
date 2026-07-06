@@ -1,4 +1,4 @@
-import { all, first, run, uuid } from './database';
+import { all, first, run, tx, uuid } from './database';
 import { nowIso, nowUtcIso } from '../lib/time';
 import { addSpawning } from './spawning';
 import type { TrialStatus } from '../lib/constants';
@@ -108,6 +108,37 @@ export function countActive(): number {
   return row?.n ?? 0;
 }
 
+/**
+ * trial_no の重複を解消する(複数端末がオフライン中などに同じ番号を採番した場合)。
+ * 番号ごとに id 昇順で最初の 1 件が番号を保持し、残りは全体の最大番号+1 から振り直す。
+ * 同じデータを持つ端末では必ず同じ結果になるため、同期を重ねると全端末で収束する。
+ * 同期の pull 適用後に呼ばれる(src/sync/sheets.ts)。振り直した件数を返す。
+ */
+export function repairTrialNoDuplicates(): number {
+  const rows = all<{ id: string; trial_no: number }>(
+    `SELECT id, trial_no FROM mating_trials
+     WHERE deleted = 0 AND trial_no IS NOT NULL
+     ORDER BY trial_no, id`,
+  );
+  const seen = new Set<number>();
+  const dups: string[] = [];
+  for (const r of rows) {
+    if (seen.has(r.trial_no)) dups.push(r.id);
+    else seen.add(r.trial_no);
+  }
+  if (dups.length === 0) return 0;
+  // 削除済みも含めた最大値から採番し、番号の再利用を避ける
+  let next = first<{ mx: number | null }>('SELECT MAX(trial_no) AS mx FROM mating_trials')?.mx ?? 0;
+  const ts = nowUtcIso();
+  tx(() => {
+    for (const id of dups) {
+      next += 1;
+      run('UPDATE mating_trials SET trial_no = ?, updated_at = ? WHERE id = ?', [next, ts, id]);
+    }
+  });
+  return dups.length;
+}
+
 function update(id: string, sets: string, params: any[]): void {
   run(`UPDATE mating_trials SET ${sets}, updated_at = ? WHERE id = ?`, [...params, nowUtcIso(), id]);
 }
@@ -128,11 +159,11 @@ export function cancelTrial(id: string): void {
   update(id, "status = '中止'", []);
 }
 
-/** 採卵結果を登録し、産卵成績を自動生成してトライアルを採卵済みにする */
+/** 採卵結果を登録し、産卵成績を自動生成してトライアルを採卵済みにする。rate は未計測なら null */
 export function collectEggs(
   trial: Trial,
   eggs: number,
-  rate: number,
+  rate: number | null,
 ): void {
   const histId = addSpawning({
     spawning_date: trial.planned_date,

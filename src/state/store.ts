@@ -17,6 +17,11 @@ function subscribe(cb: () => void): () => void {
   return () => listeners.delete(cb);
 }
 
+/** データ変更(bumpData)の購読。UI 以外(書込後の自動同期トリガ等)から使う。 */
+export function subscribeData(cb: () => void): () => void {
+  return subscribe(cb);
+}
+
 function getSnapshot(): number {
   return version;
 }

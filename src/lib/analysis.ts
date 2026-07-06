@@ -32,9 +32,12 @@ function aggregate(
     const trials = recs.length;
     const successes = recs.filter((r) => (r.egg_count ?? 0) > 0).length;
     const eggs = recs.map((r) => r.egg_count ?? 0);
-    const rates = recs.map((r) => r.fertilization_rate ?? 0);
+    // 受精率は未計測(null)を除いて平均する(0% と混ぜると成績が不当に下がる)
+    const rates = recs
+      .map((r) => r.fertilization_rate)
+      .filter((v): v is number => v !== null && v !== undefined);
     const avgEggs = round1(eggs.reduce((a, b) => a + b, 0) / trials);
-    const avgRate = round1(rates.reduce((a, b) => a + b, 0) / trials);
+    const avgRate = rates.length ? round1(rates.reduce((a, b) => a + b, 0) / rates.length) : 0;
     const lastDate = recs
       .map((r) => r.spawning_date ?? '')
       .reduce((a, b) => (a > b ? a : b), '');
