@@ -32,6 +32,12 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
+      - name: Ensure channel "preview" exists
+        # eas update は branch に公開するが、配布QRが参照するのは channel。
+        # channel が無いと端末の更新確認が 404 になり、キャッシュされた旧版が
+        # 起動し続ける(実際に起きた)。既存なら失敗するので || true で冪等に。
+        run: eas channel:create preview --non-interactive || true
+
       - name: Publish update to preview
         env:
           # 既定の同期先を配信物へ注入する(app.config.ts → extra.sheetUrl / sheetToken)。
