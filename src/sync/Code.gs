@@ -91,27 +91,48 @@ function doPost(e) {
   }
 }
 
+// サーバー側の最終書込時刻のキャッシュキー(高速パス用)。書込のたびに更新する。
+var CACHE_LAST_WRITE = 'last_srv_write';
+
 /**
  * push と増分 pull を 1 リクエストで処理する(従来は pull GET + push POST の 2 往復)。
  * ロック内で「since より後にサーバーで書かれた行」を集めてから push を適用するので、
  * 自分が今 push した行は応答に混ざらず、他端末の書込は取りこぼさない。
  * 応答の serverNow を端末が保存し、次回の since に使う。
+ *
+ * 高速パス: アプリは作業中に約10秒間隔でポーリングするため、push なし・増分 pull のみで
+ * 「前回(since)以降サーバーに書込が無い」場合は、シートを読まずロックも取らずに即返す。
+ * serverNow には受け取った since をそのまま返し、透かしを進めない(進めると
+ * このチェックとすれ違いで入った書込を次回以降拾えなくなるため)。
+ * キャッシュが消えていた場合は通常パスに落ちるだけで、取りこぼしは起きない。
  */
 function syncCombined(body) {
+  var since = body.since == null ? '' : String(body.since);
+  var pushTables = body.tables || {};
+  var hasPush = Object.keys(pushTables).some(function (n) {
+    return (pushTables[n] || []).length > 0;
+  });
+  if (!hasPush && since) {
+    var lastWrite = CacheService.getScriptCache().get(CACHE_LAST_WRITE);
+    var lastTs = lastWrite === null ? null : tsValue(lastWrite);
+    var sinceTs = tsValue(since);
+    if (lastTs !== null && sinceTs !== null && lastTs <= sinceTs) {
+      return { ok: true, tables: {}, applied: 0, serverNow: since };
+    }
+  }
+
   var lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    var since = body.since == null ? '' : String(body.since);
     var changes = {};
     Object.keys(SCHEMA).forEach(function (name) {
       var rows = readSheet(name, SCHEMA[name], since);
       if (rows.length) changes[name] = rows;
     });
     var applied = 0;
-    var tables = body.tables || {};
-    Object.keys(tables).forEach(function (name) {
+    Object.keys(pushTables).forEach(function (name) {
       var def = SCHEMA[name];
-      if (def) applied += upsertRows(name, def, tables[name]);
+      if (def) applied += upsertRows(name, def, pushTables[name]);
     });
     return {
       ok: true,
@@ -227,6 +248,8 @@ function upsertRows(name, def, rows) {
   // 変更があれば 1 回だけまとめて書き込む（行ごとの setValues 連打を回避）
   if (dirty) {
     sh.getRange(1, 1, values.length, width).setValues(values);
+    // 高速パス(syncCombined)用に最終書込時刻を残す(6時間。消えても通常パスに落ちるだけ)
+    CacheService.getScriptCache().put(CACHE_LAST_WRITE, srvNow, 21600);
   }
   return applied;
 }
