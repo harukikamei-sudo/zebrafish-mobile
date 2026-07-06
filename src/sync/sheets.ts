@@ -259,11 +259,34 @@ export async function syncNow(): Promise<SyncResult> {
 }
 
 /**
- * 自動同期(起動時・復帰時・定期)。URL未設定/同期中/直近15秒以内ならスキップ。
+ * 自動同期(起動時・復帰時)。URL未設定/同期中/直近8秒以内ならスキップ。
  * 変化があった時だけログに残し、失敗(オフライン等)は黙ってスキップする。
  */
 export async function autoSync(): Promise<void> {
-  if (Date.now() - _lastAutoAt < 15000) return;
+  if (Date.now() - _lastAutoAt < 8000) return;
+  await runAutoSync();
+}
+
+// ===== 作業中のこまめな同期(バースト) =====
+// 「操作があった直後の数分間」だけ約10秒間隔で同期し、他端末の記録をほぼ即時に取り込む。
+// 静かになったら5分間隔に戻る。バースト入りの条件は:
+//  - アプリ起動・バックグラウンド復帰
+//  - ローカルの書込(scheduleAutoSync 経由)
+//  - 同期で変化を取り込んだ/送った(=どこかの端末で作業中とみなし延長)
+const BURST_WINDOW_MS = 3 * 60 * 1000;
+const IDLE_INTERVAL_MS = 5 * 60 * 1000;
+let _burstUntil = 0;
+
+/** 「いま作業中」の印。以後しばらく tickAutoSync がこまめに同期する。 */
+export function markSyncActivity(): void {
+  _burstUntil = Date.now() + BURST_WINDOW_MS;
+}
+
+/** AutoSync が約10秒ごとに呼ぶ刻み。バースト中は毎回、平常時は5分間隔で同期する。 */
+export async function tickAutoSync(): Promise<void> {
+  const now = Date.now();
+  const interval = now < _burstUntil ? 0 : IDLE_INTERVAL_MS;
+  if (now - _lastAutoAt < Math.max(interval, 8000)) return;
   await runAutoSync();
 }
 
@@ -274,6 +297,8 @@ async function runAutoSync(): Promise<void> {
     const r = await syncNow();
     if (r.pulled + r.pushed > 0) {
       logAction('同期', null, `自動 取込${r.pulled}/送信${r.pushed}`);
+      // 変化があった=誰かが作業中。しばらくこまめに同期して追いかける
+      markSyncActivity();
     }
   } catch {
     // オフライン等は黙ってスキップ。デバウンスは戻し、次のトリガで即再試行できるようにする
@@ -290,6 +315,7 @@ export function scheduleAutoSync(delayMs = 3000): void {
   // 同期処理自身も完了時に bumpData を呼ぶ(その間 _busy=true)。
   // ここで弾かないと「同期→bumpData→また同期」の無限ループになる。
   if (_busy || !getSheetUrl()) return;
+  markSyncActivity();
   armKick(delayMs);
 }
 

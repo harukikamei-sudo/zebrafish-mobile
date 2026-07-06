@@ -213,7 +213,7 @@ export default function DashboardScreen() {
         <View style={{ gap: S.two }}>
           <Btn label="今すぐ同期" icon="sync-outline" variant="default" loading={syncing} onPress={onSync} />
           {syncMsg ? <Notice kind={syncMsg.kind}>{syncMsg.text}</Notice> : null}
-          <Muted style={{ textAlign: 'center' }}>記録の直後・起動時・復帰時に自動で同期します</Muted>
+          <Muted style={{ textAlign: 'center' }}>記録はすぐ送信・作業中は約10秒ごとに自動同期します</Muted>
         </View>
       </Reveal>
 
