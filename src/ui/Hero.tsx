@@ -11,7 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { Clock } from './Clock';
-import { R, S, F, shadow } from '../lib/theme';
+import { R, S, F, shadow, HERO } from '../lib/theme';
 import { WeatherVisual } from '../lib/weather';
 
 export type HeroStyle = 'aurora' | 'tide' | 'editorial';
@@ -41,13 +41,13 @@ interface Palette {
   blob: [string, string, string];
 }
 
-/** 固定の暖色パレット(スクショの配色: クリーム→琥珀→珊瑚)。 */
+/** 季節の光パレット(lib/theme の SEASON に追従。春=桜霞/夏=水面/秋=琥珀/冬=雪明かり)。 */
 function palette(): Palette {
   return {
-    grad: ['#FFE6B4', '#F6B36B', '#EE9A6E'],
-    on: '#3A2410',
-    soft: 'rgba(58,36,16,0.68)',
-    blob: ['#FFF1D2', '#FFC487', '#F7A98C'],
+    grad: HERO.grad,
+    on: HERO.on,
+    soft: HERO.soft,
+    blob: HERO.blob,
   };
 }
 
